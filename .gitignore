@@ -1,0 +1,9 @@
+frontend/node_modules/ 
+frontend/dist/ 
+backend/node_modules/ 
+backend/dist/ 
+backend/.env 
+fraud-engine/.venv/ 
+fraud-engine/__pycache__/ 
+*.pyc 
+.env 

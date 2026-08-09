@@ -1,0 +1,193 @@
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "cjs"
+  generatedFileExtension = "ts"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+enum UserRole {
+  CUSTOMER
+  BANK_EMPLOYEE
+  FRAUD_ANALYST
+  SECURITY_ANALYST
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+  SUSPENDED
+}
+
+enum TransactionStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  REJECTED
+  FLAGGED
+}
+
+enum TransactionType {
+  TRANSFER
+  DEPOSIT
+  WITHDRAWAL
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  FALSE_POSITIVE
+}
+
+model User {
+  id           Int        @id @default(autoincrement())
+  email        String     @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         UserRole   @default(CUSTOMER)
+  status       UserStatus @default(ACTIVE)
+  mfaEnabled   Boolean    @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts       BankAccount[]
+  beneficiaries  Beneficiary[]
+  devices        Device[]
+  loginAttempts  LoginAttempt[]
+  auditLogs      AuditLog[]
+  securityEvents SecurityEvent[]
+}
+
+model BankAccount {
+  id            Int     @id @default(autoincrement())
+  accountNumber String  @unique
+  balance       Decimal @default(0)
+  currency      String  @default("USD")
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+
+  sentTransactions     Transaction[] @relation("SenderAccount")
+  receivedTransactions Transaction[] @relation("ReceiverAccount")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Beneficiary {
+  id            Int     @id @default(autoincrement())
+  name          String
+  accountNumber String
+  bankName      String?
+
+  ownerId Int
+  owner   User @relation(fields: [ownerId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Transaction {
+  id          Int               @id @default(autoincrement())
+  reference   String            @unique
+  amount      Decimal
+  currency    String            @default("USD")
+  description String?
+  type        TransactionType   @default(TRANSFER)
+  status      TransactionStatus @default(PENDING)
+
+  senderAccountId Int?
+  senderAccount   BankAccount? @relation("SenderAccount", fields: [senderAccountId], references: [id])
+
+  receiverAccountId Int?
+  receiverAccount   BankAccount? @relation("ReceiverAccount", fields: [receiverAccountId], references: [id])
+
+  riskScore Int?
+  riskLevel RiskLevel?
+
+  fraudAlert FraudAlert?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Device {
+  id       Int     @id @default(autoincrement())
+  deviceId String
+  browser  String?
+  os       String?
+  trusted  Boolean @default(false)
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+
+  firstSeen DateTime @default(now())
+  lastSeen  DateTime @default(now())
+
+  @@unique([userId, deviceId])
+}
+
+model LoginAttempt {
+  id         Int     @id @default(autoincrement())
+  successful Boolean
+  deviceInfo String?
+  ipAddress  String?
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model FraudAlert {
+  id        Int         @id @default(autoincrement())
+  riskScore Int
+  riskLevel RiskLevel
+  reason    String
+  status    AlertStatus @default(OPEN)
+
+  transactionId Int         @unique
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SecurityEvent {
+  id          Int       @id @default(autoincrement())
+  eventType   String
+  description String
+  riskLevel   RiskLevel
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id       Int     @id @default(autoincrement())
+  action   String
+  resource String?
+  result   String?
+  details  String?
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+}
