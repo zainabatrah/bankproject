@@ -60,3 +60,25 @@ def test_invalid_transaction():
     )
 
     assert response.status_code == 422
+
+
+def test_ml_fraud_prediction():
+    response = client.post(
+        "/predict",
+        json={
+            "amount": 7500,
+            "average_amount": 250,
+            "new_device": True,
+            "new_beneficiary": True,
+            "transactions_last_hour": 8,
+            "failed_logins_last_hour": 4,
+            "transaction_hour": 2
+        }
+    )
+
+    result = response.json()
+
+    assert response.status_code == 200
+    assert result["prediction"] == 1
+    assert result["is_fraud"] is True
+    assert 0 <= result["fraud_probability"] <= 1
