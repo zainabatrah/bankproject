@@ -1,0 +1,116 @@
+{
+    "generated_at": "2026-08-18T14:50:00.470024+00:00",
+    "total_scenarios": 4,
+    "scenarios": [
+        {
+            "scenario": "Account takeover attempt",
+            "transaction": {
+                "amount": 8500,
+                "average_amount": 300,
+                "new_device": true,
+                "new_beneficiary": true,
+                "transactions_last_hour": 2,
+                "failed_logins_last_hour": 5,
+                "transaction_hour": 2
+            },
+            "result": {
+                "risk_score": 100,
+                "severity": "CRITICAL",
+                "decision": "BLOCK",
+                "reasons": [
+                    "Unusual transaction amount",
+                    "Transaction made from a new device",
+                    "Transaction sent to a new beneficiary",
+                    "Repeated failed login attempts",
+                    "Transaction made at an unusual time"
+                ],
+                "ml_prediction": 1,
+                "ml_probability": 0.9991,
+                "alert_created": true,
+                "alert_id": 6,
+                "security_events_logged": [
+                    "NEW_DEVICE",
+                    "FAILED_LOGIN",
+                    "SUSPICIOUS_TRANSACTION",
+                    "FRAUD_ALERT_CREATED"
+                ]
+            }
+        },
+        {
+            "scenario": "Rapid transaction attack",
+            "transaction": {
+                "amount": 1200,
+                "average_amount": 400,
+                "new_device": false,
+                "new_beneficiary": false,
+                "transactions_last_hour": 10,
+                "failed_logins_last_hour": 0,
+                "transaction_hour": 14
+            },
+            "result": {
+                "risk_score": 20,
+                "severity": "LOW",
+                "decision": "APPROVE",
+                "reasons": [
+                    "Too many transactions in one hour"
+                ],
+                "ml_prediction": 0,
+                "ml_probability": 0.0612,
+                "alert_created": false,
+                "alert_id": null,
+                "security_events_logged": []
+            }
+        },
+        {
+            "scenario": "Unusual high-value transfer",
+            "transaction": {
+                "amount": 15000,
+                "average_amount": 500,
+                "new_device": false,
+                "new_beneficiary": true,
+                "transactions_last_hour": 1,
+                "failed_logins_last_hour": 0,
+                "transaction_hour": 11
+            },
+            "result": {
+                "risk_score": 60,
+                "severity": "HIGH",
+                "decision": "REVIEW",
+                "reasons": [
+                    "Unusual transaction amount",
+                    "Transaction sent to a new beneficiary"
+                ],
+                "ml_prediction": 1,
+                "ml_probability": 0.9644,
+                "alert_created": true,
+                "alert_id": 7,
+                "security_events_logged": [
+                    "FRAUD_ALERT_CREATED"
+                ]
+            }
+        },
+        {
+            "scenario": "Normal customer transaction",
+            "transaction": {
+                "amount": 250,
+                "average_amount": 300,
+                "new_device": false,
+                "new_beneficiary": false,
+                "transactions_last_hour": 1,
+                "failed_logins_last_hour": 0,
+                "transaction_hour": 13
+            },
+            "result": {
+                "risk_score": 0,
+                "severity": "LOW",
+                "decision": "APPROVE",
+                "reasons": [],
+                "ml_prediction": 0,
+                "ml_probability": 0.0002,
+                "alert_created": false,
+                "alert_id": null,
+                "security_events_logged": []
+            }
+        }
+    ]
+}
