@@ -12,6 +12,7 @@ from reportlab.platypus import (
 import csv
 import io
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone
 from typing import Literal
 from fastapi import Depends, FastAPI, HTTPException
@@ -31,6 +32,19 @@ from pydantic import BaseModel, Field
 
 # Create the FastAPI application
 app = FastAPI(title="Bank Fraud Detection API")
+
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
 
 ml_model = joblib.load("models/logistic_regression.joblib")
 
