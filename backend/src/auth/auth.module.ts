@@ -13,6 +13,8 @@ import { DevicesModule } from '../devices/devices.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AuthGuard } from './auth.guard';
+import { RolesGuard } from './roles.guard';
+import { MfaService } from './mfa.service';
 
 @Module({
   imports: [
@@ -50,12 +52,16 @@ import { AuthGuard } from './auth.guard';
   providers: [
     AuthService,
     AuthGuard,
+    RolesGuard,
+    MfaService,
   ],
 
   exports: [
     AuthService,
     AuthGuard,
+    RolesGuard,
     JwtModule,
+    MfaService,
   ],
 })
 export class AuthModule {}
