@@ -1,75 +1,39 @@
-# React + TypeScript + Vite
+# BankShield frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Responsive React/TypeScript client for the BankShield banking and fraud-protection platform.
 
-Currently, two official plugins are available:
+## Included experiences
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Registration, password sign-in, MFA challenge, and recovery-code sign-in
+- Customer dashboard, multi-currency accounts, beneficiaries, transfers, and transaction history
+- MFA setup/disable/recovery-code management and recognized-device status
+- Role-gated fraud operations, alert triage, user administration, and audit logs
+- Explicit customer, analyst, and administrator demo workspaces for UI review without running the APIs
 
-## React Compiler
+## Run locally
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```powershell
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The app runs at `http://localhost:5173`, which matches the current NestJS CORS configuration.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+By default, API requests target `http://localhost:3000`. Override that with a local `.env` file when needed:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```env
+VITE_API_URL=http://localhost:3000
 ```
+
+For real transfers, run both the NestJS backend and the root fraud-analysis service. The interactive demo on the sign-in screen remains fully usable when those services or PostgreSQL are unavailable.
+
+## Validation
+
+```powershell
+npm run lint
+npm run build
+```
+
+## Session note
+
+The current backend returns access and refresh tokens in JSON and accepts refresh tokens in request bodies, so the client stores the session in browser storage to match that contract. A production deployment should move refresh tokens to secure, `HttpOnly`, same-site cookies when the backend supports them.
