@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   createCipheriv,
   createDecipheriv,
+  createHash,
   randomBytes,
 } from 'crypto';
 
@@ -20,6 +21,7 @@ import {
   verify,
 } from 'otplib';
 
+import * as bcrypt from 'bcrypt';
 import * as QRCode from 'qrcode';
 
 import { PrismaService } from '../prisma/prisma.service';
@@ -27,23 +29,19 @@ import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class MfaService {
   constructor(
-    private readonly prisma:
-      PrismaService,
-
-    private readonly configService:
-      ConfigService,
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
   ) {}
 
-  // ==========================================
-  // GET ENCRYPTION KEY
-  // ==========================================
+  // =========================================================
+  // MFA ENCRYPTION KEY
+  // =========================================================
 
   private getEncryptionKey(): Buffer {
     const keyHex =
-      this.configService
-        .getOrThrow<string>(
-          'MFA_ENCRYPTION_KEY',
-        );
+      this.configService.getOrThrow<string>(
+        'MFA_ENCRYPTION_KEY',
+      );
 
     if (
       !/^[0-9a-fA-F]{64}$/.test(
@@ -61,10 +59,9 @@ export class MfaService {
     );
   }
 
-  // ==========================================
+  // =========================================================
   // ENCRYPT MFA SECRET
-  // AES-256-GCM
-  // ==========================================
+  // =========================================================
 
   private encryptSecret(
     secret: string,
@@ -88,7 +85,6 @@ export class MfaService {
           secret,
           'utf8',
         ),
-
         cipher.final(),
       ]);
 
@@ -102,9 +98,9 @@ export class MfaService {
     ].join('.');
   }
 
-  // ==========================================
+  // =========================================================
   // DECRYPT MFA SECRET
-  // ==========================================
+  // =========================================================
 
   private decryptSecret(
     encryptedValue: string,
@@ -123,7 +119,7 @@ export class MfaService {
         !encryptedHex
       ) {
         throw new Error(
-          'Invalid encrypted format',
+          'Invalid encrypted MFA secret format',
         );
       }
 
@@ -155,7 +151,6 @@ export class MfaService {
               'hex',
             ),
           ),
-
           decipher.final(),
         ]);
 
@@ -169,9 +164,106 @@ export class MfaService {
     }
   }
 
-  // ==========================================
+  // =========================================================
+  // RECOVERY CODE HELPERS
+  // =========================================================
+
+  private normalizeRecoveryCode(
+    code: string,
+  ): string {
+    return code
+      .replace(/-/g, '')
+      .trim()
+      .toUpperCase();
+  }
+
+  private hashRecoveryCode(
+    code: string,
+  ): string {
+    const normalized =
+      this.normalizeRecoveryCode(
+        code,
+      );
+
+    return createHash('sha256')
+      .update(normalized)
+      .digest('hex');
+  }
+
+  private generateRecoveryCode(): string {
+    const raw =
+      randomBytes(10)
+        .toString('hex')
+        .toUpperCase();
+
+    return [
+      raw.slice(0, 5),
+      raw.slice(5, 10),
+      raw.slice(10, 15),
+      raw.slice(15, 20),
+    ].join('-');
+  }
+
+  private generateRecoveryCodeSet(
+    count = 10,
+  ): string[] {
+    return Array.from(
+      { length: count },
+      () =>
+        this.generateRecoveryCode(),
+    );
+  }
+
+  // =========================================================
+  // STEP 6
+  // CREATE / REPLACE RECOVERY CODES
+  // =========================================================
+
+  private async replaceRecoveryCodes(
+    userId: number,
+  ): Promise<string[]> {
+    const recoveryCodes =
+      this.generateRecoveryCodeSet(
+        10,
+      );
+
+    const rows =
+      recoveryCodes.map(
+        (recoveryCode) => ({
+          userId,
+
+          codeHash:
+            this.hashRecoveryCode(
+              recoveryCode,
+            ),
+        }),
+      );
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        // Remove all old recovery codes.
+        await tx.mfaRecoveryCode.deleteMany({
+          where: {
+            userId,
+          },
+        });
+
+        // Store ONLY hashes.
+        await tx.mfaRecoveryCode.createMany({
+          data: rows,
+        });
+      },
+    );
+
+    // Plaintext recovery codes are returned
+    // only to the user.
+    return recoveryCodes;
+  }
+
+  // =========================================================
   // START MFA SETUP
-  // ==========================================
+  // POST /auth/mfa/setup
+  // =========================================================
 
   async setup(
     userId: number,
@@ -201,16 +293,8 @@ export class MfaService {
       );
     }
 
-    // ========================================
-    // GENERATE TOTP SECRET
-    // ========================================
-
     const secret =
       generateSecret();
-
-    // ========================================
-    // ENCRYPT BEFORE SAVING
-    // ========================================
 
     const encryptedSecret =
       this.encryptSecret(
@@ -234,10 +318,6 @@ export class MfaService {
       },
     });
 
-    // ========================================
-    // GENERATE AUTHENTICATOR URI
-    // ========================================
-
     const otpAuthUri =
       generateURI({
         issuer:
@@ -248,10 +328,6 @@ export class MfaService {
 
         secret,
       });
-
-    // ========================================
-    // GENERATE QR CODE
-    // ========================================
 
     const qrCodeDataUrl =
       await QRCode.toDataURL(
@@ -272,9 +348,9 @@ export class MfaService {
     };
   }
 
-  // ==========================================
-  // VERIFY SETUP
-  // ==========================================
+  // =========================================================
+  // VERIFY MFA SETUP
+  // =========================================================
 
   async verifySetup(
     userId: number,
@@ -315,18 +391,10 @@ export class MfaService {
       );
     }
 
-    // ========================================
-    // DECRYPT SECRET
-    // ========================================
-
     const secret =
       this.decryptSecret(
         user.mfaSecretEncrypted,
       );
-
-    // ========================================
-    // VERIFY TOTP
-    // ========================================
 
     const verification =
       await verify({
@@ -340,10 +408,24 @@ export class MfaService {
       );
     }
 
-    // ========================================
-    // ENABLE MFA
-    // ========================================
+    const recoveryCodes =
+      this.generateRecoveryCodeSet(
+        10,
+      );
 
+    const recoveryCodeRows =
+      recoveryCodes.map(
+        (recoveryCode) => ({
+          userId,
+
+          codeHash:
+            this.hashRecoveryCode(
+              recoveryCode,
+            ),
+        }),
+      );
+
+    // Everything is done atomically.
     await this.prisma.$transaction(
       async (tx) => {
         await tx.user.update({
@@ -360,6 +442,17 @@ export class MfaService {
           },
         });
 
+        await tx.mfaRecoveryCode.deleteMany({
+          where: {
+            userId,
+          },
+        });
+
+        await tx.mfaRecoveryCode.createMany({
+          data:
+            recoveryCodeRows,
+        });
+
         await tx.securityEvent.create({
           data: {
             eventType:
@@ -374,6 +467,24 @@ export class MfaService {
             userId,
           },
         });
+
+        await tx.auditLog.create({
+          data: {
+            userId,
+
+            action:
+              'MFA_ENABLED',
+
+            resource:
+              'AUTH',
+
+            result:
+              'SUCCESS',
+
+            details:
+              'User enabled multi-factor authentication and recovery codes were generated.',
+          },
+        });
       },
     );
 
@@ -383,12 +494,17 @@ export class MfaService {
 
       mfaEnabled:
         true,
+
+      recoveryCodes,
+
+      warning:
+        'Save these recovery codes now. They will not be shown again.',
     };
   }
 
-  // ==========================================
-  // VERIFY CODE FOR FUTURE LOGIN
-  // ==========================================
+  // =========================================================
+  // VERIFY NORMAL MFA CODE
+  // =========================================================
 
   async verifyUserCode(
     userId: number,
@@ -429,5 +545,414 @@ export class MfaService {
       });
 
     return result.valid;
+  }
+
+  // =========================================================
+  // CONSUME ONE RECOVERY CODE
+  // =========================================================
+
+  async consumeRecoveryCode(
+    userId: number,
+    recoveryCode: string,
+  ): Promise<boolean> {
+    const codeHash =
+      this.hashRecoveryCode(
+        recoveryCode,
+      );
+
+    const storedCode =
+      await this.prisma
+        .mfaRecoveryCode
+        .findUnique({
+          where: {
+            codeHash,
+          },
+        });
+
+    if (!storedCode) {
+      return false;
+    }
+
+    if (
+      storedCode.userId !==
+        userId
+    ) {
+      return false;
+    }
+
+    if (storedCode.usedAt) {
+      return false;
+    }
+
+    // Atomic one-time-use protection.
+    const result =
+      await this.prisma
+        .mfaRecoveryCode
+        .updateMany({
+          where: {
+            id:
+              storedCode.id,
+
+            userId,
+
+            usedAt:
+              null,
+          },
+
+          data: {
+            usedAt:
+              new Date(),
+          },
+        });
+
+    return result.count === 1;
+  }
+
+  // =========================================================
+  // REGENERATE RECOVERY CODES
+  // =========================================================
+
+  async regenerateRecoveryCodes(
+    userId: number,
+    currentPassword: string,
+    code: string,
+  ) {
+    const user =
+      await this.prisma.user.findUnique({
+        where: {
+          id: userId,
+        },
+
+        select: {
+          id: true,
+          passwordHash: true,
+          mfaEnabled: true,
+          mfaSecretEncrypted:
+            true,
+        },
+      });
+
+    if (!user) {
+      throw new NotFoundException(
+        'User not found',
+      );
+    }
+
+    if (
+      !user.mfaEnabled ||
+      !user.mfaSecretEncrypted
+    ) {
+      throw new BadRequestException(
+        'MFA is not enabled',
+      );
+    }
+
+    const passwordValid =
+      await bcrypt.compare(
+        currentPassword,
+        user.passwordHash,
+      );
+
+    if (!passwordValid) {
+      await this.prisma.securityEvent.create({
+        data: {
+          eventType:
+            'MFA_RECOVERY_CODES_REGEN_FAILED',
+
+          description:
+            'Failed attempt to regenerate MFA recovery codes',
+
+          riskLevel:
+            'MEDIUM',
+
+          userId,
+        },
+      });
+
+      throw new UnauthorizedException(
+        'Invalid password or MFA code',
+      );
+    }
+
+    const secret =
+      this.decryptSecret(
+        user.mfaSecretEncrypted,
+      );
+
+    const verification =
+      await verify({
+        secret,
+        token: code,
+      });
+
+    if (!verification.valid) {
+      await this.prisma.securityEvent.create({
+        data: {
+          eventType:
+            'MFA_RECOVERY_CODES_REGEN_FAILED',
+
+          description:
+            'Failed attempt to regenerate MFA recovery codes',
+
+          riskLevel:
+            'MEDIUM',
+
+          userId,
+        },
+      });
+
+      throw new UnauthorizedException(
+        'Invalid password or MFA code',
+      );
+    }
+
+    const recoveryCodes =
+      await this.replaceRecoveryCodes(
+        userId,
+      );
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.securityEvent.create({
+          data: {
+            eventType:
+              'MFA_RECOVERY_CODES_REGENERATED',
+
+            description:
+              'User regenerated MFA recovery codes',
+
+            riskLevel:
+              'MEDIUM',
+
+            userId,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            userId,
+
+            action:
+              'MFA_RECOVERY_CODES_REGENERATED',
+
+            resource:
+              'AUTH',
+
+            result:
+              'SUCCESS',
+
+            details:
+              'Previous recovery codes were invalidated and replaced.',
+          },
+        });
+      },
+    );
+
+    return {
+      message:
+        'MFA recovery codes regenerated successfully',
+
+      recoveryCodes,
+
+      warning:
+        'Save these recovery codes now. Previous recovery codes no longer work.',
+    };
+  }
+
+  // =========================================================
+  // SECURELY DISABLE MFA
+  // =========================================================
+
+  async disable(
+    userId: number,
+    currentPassword: string,
+    code: string,
+  ) {
+    const user =
+      await this.prisma.user.findUnique({
+        where: {
+          id: userId,
+        },
+
+        select: {
+          id: true,
+          passwordHash: true,
+          mfaEnabled: true,
+          mfaSecretEncrypted:
+            true,
+        },
+      });
+
+    if (!user) {
+      throw new NotFoundException(
+        'User not found',
+      );
+    }
+
+    if (
+      !user.mfaEnabled ||
+      !user.mfaSecretEncrypted
+    ) {
+      throw new BadRequestException(
+        'MFA is not enabled',
+      );
+    }
+
+    // Check current password.
+
+    const passwordValid =
+      await bcrypt.compare(
+        currentPassword,
+        user.passwordHash,
+      );
+
+    if (!passwordValid) {
+      await this.prisma.securityEvent.create({
+        data: {
+          eventType:
+            'MFA_DISABLE_FAILED',
+
+          description:
+            'Failed attempt to disable multi-factor authentication',
+
+          riskLevel:
+            'MEDIUM',
+
+          userId,
+        },
+      });
+
+      throw new UnauthorizedException(
+        'Invalid password or MFA code',
+      );
+    }
+
+    // Check current authenticator code.
+
+    const secret =
+      this.decryptSecret(
+        user.mfaSecretEncrypted,
+      );
+
+    const verification =
+      await verify({
+        secret,
+        token: code,
+      });
+
+    if (!verification.valid) {
+      await this.prisma.securityEvent.create({
+        data: {
+          eventType:
+            'MFA_DISABLE_FAILED',
+
+          description:
+            'Failed attempt to disable multi-factor authentication',
+
+          riskLevel:
+            'MEDIUM',
+
+          userId,
+        },
+      });
+
+      throw new UnauthorizedException(
+        'Invalid password or MFA code',
+      );
+    }
+
+    const now =
+      new Date();
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        // Disable MFA.
+
+        await tx.user.update({
+          where: {
+            id: userId,
+          },
+
+          data: {
+            mfaEnabled:
+              false,
+
+            mfaSecretEncrypted:
+              null,
+
+            mfaVerifiedAt:
+              null,
+          },
+        });
+
+        // Delete recovery codes.
+
+        await tx.mfaRecoveryCode.deleteMany({
+          where: {
+            userId,
+          },
+        });
+
+        // Revoke refresh sessions.
+
+        await tx.refreshToken.updateMany({
+          where: {
+            userId,
+
+            revokedAt:
+              null,
+          },
+
+          data: {
+            revokedAt:
+              now,
+          },
+        });
+
+        await tx.securityEvent.create({
+          data: {
+            eventType:
+              'MFA_DISABLED',
+
+            description:
+              'Multi-factor authentication was disabled and active refresh sessions were revoked',
+
+            riskLevel:
+              'MEDIUM',
+
+            userId,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            userId,
+
+            action:
+              'MFA_DISABLED',
+
+            resource:
+              'AUTH',
+
+            result:
+              'SUCCESS',
+
+            details:
+              'User disabled MFA. Recovery codes were deleted and active refresh tokens were revoked.',
+          },
+        });
+      },
+    );
+
+    return {
+      message:
+        'MFA disabled successfully. Existing refresh sessions were revoked.',
+
+      mfaEnabled:
+        false,
+
+      sessionsRevoked:
+        true,
+    };
   }
 }

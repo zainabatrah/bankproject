@@ -51,9 +51,9 @@ export class AuthService {
       MfaService,
   ) {}
 
-  // ==========================================
+  // =========================================================
   // REFRESH TOKEN HELPERS
-  // ==========================================
+  // =========================================================
 
   private generateRefreshToken(): string {
     return randomBytes(64)
@@ -91,11 +91,13 @@ export class AuthService {
         where: {
           userId,
           deviceId,
-          revokedAt: null,
+          revokedAt:
+            null,
         },
 
         data: {
-          revokedAt: new Date(),
+          revokedAt:
+            new Date(),
         },
       });
     }
@@ -112,9 +114,9 @@ export class AuthService {
     return refreshToken;
   }
 
-  // ==========================================
-  // ISSUE FULL AUTH SESSION
-  // ==========================================
+  // =========================================================
+  // CREATE AUTHENTICATED SESSION
+  // =========================================================
 
   private async issueSession(
     user: {
@@ -134,9 +136,6 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
-
-      // Very important:
-      // AuthGuard will only allow type=access.
       type: 'access',
     };
 
@@ -186,19 +185,30 @@ export class AuthService {
         : {}),
 
       user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        status: user.status,
+        id:
+          user.id,
+
+        email:
+          user.email,
+
+        firstName:
+          user.firstName,
+
+        lastName:
+          user.lastName,
+
+        role:
+          user.role,
+
+        status:
+          user.status,
       },
     };
   }
 
-  // ==========================================
+  // =========================================================
   // REGISTER
-  // ==========================================
+  // =========================================================
 
   async register(
     registerDto: RegisterDto,
@@ -239,19 +249,32 @@ export class AuthService {
       });
 
     return {
-      id: user.id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      role: user.role,
-      status: user.status,
-      createdAt: user.createdAt,
+      id:
+        user.id,
+
+      email:
+        user.email,
+
+      firstName:
+        user.firstName,
+
+      lastName:
+        user.lastName,
+
+      role:
+        user.role,
+
+      status:
+        user.status,
+
+      createdAt:
+        user.createdAt,
     };
   }
 
-  // ==========================================
+  // =========================================================
   // LOGIN
-  // ==========================================
+  // =========================================================
 
   async login(
     loginDto: LoginDto,
@@ -269,17 +292,19 @@ export class AuthService {
         email,
       );
 
-    // ========================================
-    // UNKNOWN EMAIL
-    // ========================================
-
     if (!user) {
       await this.prisma.loginAttempt.create({
         data: {
-          successful: false,
-          deviceInfo: deviceId,
+          successful:
+            false,
+
+          deviceInfo:
+            deviceId,
+
           ipAddress,
-          userId: null,
+
+          userId:
+            null,
         },
       });
 
@@ -288,25 +313,20 @@ export class AuthService {
       );
     }
 
-    // ========================================
-    // ACCOUNT STATUS
-    // ========================================
-
     if (user.status === 'LOCKED') {
       throw new UnauthorizedException(
         'Account is locked',
       );
     }
 
-    if (user.status === 'SUSPENDED') {
+    if (
+      user.status ===
+      'SUSPENDED'
+    ) {
       throw new UnauthorizedException(
         'Account is suspended',
       );
     }
-
-    // ========================================
-    // PASSWORD
-    // ========================================
 
     const passwordMatches =
       await bcrypt.compare(
@@ -317,10 +337,16 @@ export class AuthService {
     if (!passwordMatches) {
       await this.prisma.loginAttempt.create({
         data: {
-          successful: false,
-          deviceInfo: deviceId,
+          successful:
+            false,
+
+          deviceInfo:
+            deviceId,
+
           ipAddress,
-          userId: user.id,
+
+          userId:
+            user.id,
         },
       });
 
@@ -333,8 +359,11 @@ export class AuthService {
       const failedAttempts =
         await this.prisma.loginAttempt.count({
           where: {
-            userId: user.id,
-            successful: false,
+            userId:
+              user.id,
+
+            successful:
+              false,
 
             createdAt: {
               gte:
@@ -343,14 +372,18 @@ export class AuthService {
           },
         });
 
-      if (failedAttempts >= 5) {
+      if (
+        failedAttempts >= 5
+      ) {
         await this.prisma.user.update({
           where: {
-            id: user.id,
+            id:
+              user.id,
           },
 
           data: {
-            status: 'LOCKED',
+            status:
+              'LOCKED',
           },
         });
 
@@ -380,9 +413,7 @@ export class AuthService {
       );
     }
 
-    // ========================================
-    // DEVICE
-    // ========================================
+    // Register / update device.
 
     const deviceResult =
       await this.devicesService.registerDevice(
@@ -391,7 +422,9 @@ export class AuthService {
         userAgent,
       );
 
-    if (deviceResult.isNewDevice) {
+    if (
+      deviceResult.isNewDevice
+    ) {
       await this.prisma.securityEvent.create({
         data: {
           eventType:
@@ -409,53 +442,70 @@ export class AuthService {
       });
     }
 
-    // ========================================
-    // MFA ENABLED
-    // ========================================
+    // =======================================================
+    // USER HAS MFA ENABLED
+    // =======================================================
 
     if (user.mfaEnabled) {
       const mfaPayload:
         MfaChallengePayload = {
-        sub: user.id,
-        email: user.email,
-        role: user.role,
+        sub:
+          user.id,
+
+        email:
+          user.email,
+
+        role:
+          user.role,
+
         deviceId,
 
-        type: 'mfa',
-        purpose: 'mfa-login',
+        type:
+          'mfa',
+
+        purpose:
+          'mfa-login',
       };
 
       const mfaToken =
         await this.jwtService.signAsync(
           mfaPayload,
           {
-            expiresIn: 300,
+            expiresIn:
+              300,
           },
         );
 
       return {
-        mfaRequired: true,
+        mfaRequired:
+          true,
 
         mfaToken,
 
-        expiresIn: 300,
+        expiresIn:
+          300,
 
         message:
           'Password verified. MFA verification required.',
       };
     }
 
-    // ========================================
-    // MFA NOT ENABLED
-    // NORMAL LOGIN COMPLETE
-    // ========================================
+    // =======================================================
+    // MFA DISABLED
+    // =======================================================
 
     await this.prisma.loginAttempt.create({
       data: {
-        successful: true,
-        deviceInfo: deviceId,
+        successful:
+          true,
+
+        deviceInfo:
+          deviceId,
+
         ipAddress,
-        userId: user.id,
+
+        userId:
+          user.id,
       },
     });
 
@@ -466,9 +516,9 @@ export class AuthService {
     );
   }
 
-  // ==========================================
-  // VERIFY MFA LOGIN
-  // ==========================================
+  // =========================================================
+  // VERIFY NORMAL MFA LOGIN
+  // =========================================================
 
   async verifyMfaLogin(
     mfaToken: string,
@@ -490,27 +540,22 @@ export class AuthService {
       );
     }
 
-    // ========================================
-    // MAKE SURE THIS IS REALLY MFA TOKEN
-    // ========================================
-
     if (
-      payload.type !== 'mfa' ||
-      payload.purpose !== 'mfa-login'
+      payload.type !==
+        'mfa' ||
+      payload.purpose !==
+        'mfa-login'
     ) {
       throw new UnauthorizedException(
         'Invalid MFA challenge',
       );
     }
 
-    // ========================================
-    // USER MUST STILL EXIST
-    // ========================================
-
     const user =
       await this.prisma.user.findUnique({
         where: {
-          id: payload.sub,
+          id:
+            payload.sub,
         },
       });
 
@@ -520,11 +565,10 @@ export class AuthService {
       );
     }
 
-    // ========================================
-    // CURRENT STATUS
-    // ========================================
-
-    if (user.status !== 'ACTIVE') {
+    if (
+      user.status !==
+      'ACTIVE'
+    ) {
       throw new UnauthorizedException(
         'Account is not active',
       );
@@ -535,10 +579,6 @@ export class AuthService {
         'MFA is not enabled for this account',
       );
     }
-
-    // ========================================
-    // VERIFY OTP
-    // ========================================
 
     const valid =
       await this.mfaService.verifyUserCode(
@@ -568,13 +608,11 @@ export class AuthService {
       );
     }
 
-    // ========================================
-    // SUCCESSFUL LOGIN
-    // ========================================
-
     await this.prisma.loginAttempt.create({
       data: {
-        successful: true,
+        successful:
+          true,
+
         deviceInfo:
           payload.deviceId,
 
@@ -607,9 +645,157 @@ export class AuthService {
     );
   }
 
-  // ==========================================
+  // =========================================================
+  // MFA RECOVERY CODE LOGIN
+  // =========================================================
+
+  async verifyMfaRecoveryLogin(
+    mfaToken: string,
+    recoveryCode: string,
+    ipAddress?: string,
+  ) {
+    let payload:
+      MfaChallengePayload;
+
+    try {
+      payload =
+        await this.jwtService
+          .verifyAsync<MfaChallengePayload>(
+            mfaToken,
+          );
+    } catch {
+      throw new UnauthorizedException(
+        'Invalid or expired MFA challenge',
+      );
+    }
+
+    if (
+      payload.type !==
+        'mfa' ||
+      payload.purpose !==
+        'mfa-login'
+    ) {
+      throw new UnauthorizedException(
+        'Invalid MFA challenge',
+      );
+    }
+
+    const user =
+      await this.prisma.user.findUnique({
+        where: {
+          id:
+            payload.sub,
+        },
+      });
+
+    if (!user) {
+      throw new UnauthorizedException(
+        'User account no longer exists',
+      );
+    }
+
+    if (
+      user.status !==
+      'ACTIVE'
+    ) {
+      throw new UnauthorizedException(
+        'Account is not active',
+      );
+    }
+
+    if (!user.mfaEnabled) {
+      throw new UnauthorizedException(
+        'MFA is not enabled for this account',
+      );
+    }
+
+    const valid =
+      await this.mfaService.consumeRecoveryCode(
+        user.id,
+        recoveryCode,
+      );
+
+    if (!valid) {
+      await this.prisma.securityEvent.create({
+        data: {
+          eventType:
+            'MFA_RECOVERY_LOGIN_FAILED',
+
+          description:
+            'Invalid or already used MFA recovery code',
+
+          riskLevel:
+            'HIGH',
+
+          userId:
+            user.id,
+        },
+      });
+
+      throw new UnauthorizedException(
+        'Invalid or already used recovery code',
+      );
+    }
+
+    await this.prisma.loginAttempt.create({
+      data: {
+        successful:
+          true,
+
+        deviceInfo:
+          payload.deviceId,
+
+        ipAddress,
+
+        userId:
+          user.id,
+      },
+    });
+
+    await this.prisma.securityEvent.create({
+      data: {
+        eventType:
+          'MFA_RECOVERY_LOGIN_SUCCESS',
+
+        description:
+          'User authenticated using an MFA recovery code',
+
+        riskLevel:
+          'MEDIUM',
+
+        userId:
+          user.id,
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        userId:
+          user.id,
+
+        action:
+          'MFA_RECOVERY_CODE_USED',
+
+        resource:
+          'AUTH',
+
+        result:
+          'SUCCESS',
+
+        details:
+          'A one-time MFA recovery code was used for authentication.',
+      },
+    });
+
+    return this.issueSession(
+      user,
+      payload.deviceId,
+    );
+  }
+
+  // =========================================================
   // REFRESH TOKEN
-  // ==========================================
+  // =========================================================
 
   async refresh(
     refreshToken: string,
@@ -626,7 +812,8 @@ export class AuthService {
         },
 
         include: {
-          user: true,
+          user:
+            true,
         },
       });
 
@@ -636,7 +823,9 @@ export class AuthService {
       );
     }
 
-    if (storedToken.revokedAt) {
+    if (
+      storedToken.revokedAt
+    ) {
       throw new UnauthorizedException(
         'Refresh token has been revoked',
       );
@@ -663,16 +852,19 @@ export class AuthService {
     const user =
       storedToken.user;
 
-    // ========================================
-    // NEW ACCESS TOKEN MUST BE type=access
-    // ========================================
-
     const newAccessToken =
       await this.jwtService.signAsync({
-        sub: user.id,
-        email: user.email,
-        role: user.role,
-        type: 'access',
+        sub:
+          user.id,
+
+        email:
+          user.email,
+
+        role:
+          user.role,
+
+        type:
+          'access',
       });
 
     const newRefreshToken =
@@ -742,9 +934,9 @@ export class AuthService {
     };
   }
 
-  // ==========================================
+  // =========================================================
   // LOGOUT
-  // ==========================================
+  // =========================================================
 
   async logout(
     refreshToken: string,
@@ -773,7 +965,8 @@ export class AuthService {
 
     await this.prisma.refreshToken.update({
       where: {
-        id: storedToken.id,
+        id:
+          storedToken.id,
       },
 
       data: {

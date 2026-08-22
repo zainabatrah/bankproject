@@ -11,23 +11,64 @@ import {
   UseGuards,
 } from '@nestjs/common';
 
-import { Throttle } from '@nestjs/throttler';
+import {
+  Throttle,
+} from '@nestjs/throttler';
 
-import type { Request } from 'express';
+import type {
+  Request,
+} from 'express';
 
-import { AuthService } from './auth.service';
-import { AuthGuard } from './auth.guard';
-import { MfaService } from './mfa.service';
+import {
+  AuthService,
+} from './auth.service';
 
-import { RegisterDto } from './dto/register.dto';
-import { LoginDto } from './dto/login.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { VerifyMfaDto } from './dto/verify-mfa.dto';
-import { MfaLoginDto } from './dto/mfa-login.dto';
+import {
+  AuthGuard,
+} from './auth.guard';
 
-import { UsersService } from '../users/users.service';
+import {
+  MfaService,
+} from './mfa.service';
 
-interface AuthenticatedRequest extends Request {
+import {
+  RegisterDto,
+} from './dto/register.dto';
+
+import {
+  LoginDto,
+} from './dto/login.dto';
+
+import {
+  RefreshTokenDto,
+} from './dto/refresh-token.dto';
+
+import {
+  VerifyMfaDto,
+} from './dto/verify-mfa.dto';
+
+import {
+  MfaLoginDto,
+} from './dto/mfa-login.dto';
+
+import {
+  DisableMfaDto,
+} from './dto/disable-mfa.dto';
+
+import {
+  MfaRecoveryLoginDto,
+} from './dto/mfa-recovery-login.dto';
+
+import {
+  RegenerateRecoveryCodesDto,
+} from './dto/regenerate-recovery-codes.dto';
+
+import {
+  UsersService,
+} from '../users/users.service';
+
+interface AuthenticatedRequest
+  extends Request {
   user: {
     sub: number;
     email: string;
@@ -48,10 +89,9 @@ export class AuthController {
       MfaService,
   ) {}
 
-  // ==========================================
+  // =========================================================
   // REGISTER
-  // POST /auth/register
-  // ==========================================
+  // =========================================================
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -64,17 +104,19 @@ export class AuthController {
     );
   }
 
-  // ==========================================
+  // =========================================================
   // LOGIN
-  // POST /auth/login
-  // ==========================================
+  // =========================================================
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({
     default: {
-      limit: 5,
-      ttl: 60000,
+      limit:
+        5,
+
+      ttl:
+        60000,
     },
   })
   login(
@@ -104,17 +146,19 @@ export class AuthController {
     );
   }
 
-  // ==========================================
-  // MFA LOGIN VERIFY
-  // POST /auth/mfa/login-verify
-  // ==========================================
+  // =========================================================
+  // NORMAL MFA LOGIN
+  // =========================================================
 
   @Post('mfa/login-verify')
   @HttpCode(HttpStatus.OK)
   @Throttle({
     default: {
-      limit: 5,
-      ttl: 60000,
+      limit:
+        5,
+
+      ttl:
+        60000,
     },
   })
   verifyMfaLogin(
@@ -131,17 +175,49 @@ export class AuthController {
     );
   }
 
-  // ==========================================
-  // REFRESH ACCESS TOKEN
-  // POST /auth/refresh
-  // ==========================================
+  // =========================================================
+  // MFA RECOVERY CODE LOGIN
+  // =========================================================
+
+  @Post('mfa/recovery-login')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({
+    default: {
+      limit:
+        5,
+
+      ttl:
+        60000,
+    },
+  })
+  recoveryLogin(
+    @Body()
+    dto: MfaRecoveryLoginDto,
+
+    @Req()
+    request: Request,
+  ) {
+    return this.authService
+      .verifyMfaRecoveryLogin(
+        dto.mfaToken,
+        dto.recoveryCode,
+        request.ip,
+      );
+  }
+
+  // =========================================================
+  // REFRESH
+  // =========================================================
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @Throttle({
     default: {
-      limit: 10,
-      ttl: 60000,
+      limit:
+        10,
+
+      ttl:
+        60000,
     },
   })
   refresh(
@@ -153,10 +229,9 @@ export class AuthController {
     );
   }
 
-  // ==========================================
+  // =========================================================
   // LOGOUT
-  // POST /auth/logout
-  // ==========================================
+  // =========================================================
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
@@ -169,10 +244,9 @@ export class AuthController {
     );
   }
 
-  // ==========================================
+  // =========================================================
   // CURRENT USER
-  // GET /auth/me
-  // ==========================================
+  // =========================================================
 
   @Get('me')
   @UseGuards(AuthGuard)
@@ -185,10 +259,9 @@ export class AuthController {
     );
   }
 
-  // ==========================================
-  // START MFA SETUP
-  // POST /auth/mfa/setup
-  // ==========================================
+  // =========================================================
+  // MFA SETUP
+  // =========================================================
 
   @Post('mfa/setup')
   @HttpCode(HttpStatus.OK)
@@ -202,18 +275,20 @@ export class AuthController {
     );
   }
 
-  // ==========================================
+  // =========================================================
   // VERIFY MFA SETUP
-  // POST /auth/mfa/verify-setup
-  // ==========================================
+  // =========================================================
 
   @Post('mfa/verify-setup')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthGuard)
   @Throttle({
     default: {
-      limit: 5,
-      ttl: 60000,
+      limit:
+        5,
+
+      ttl:
+        60000,
     },
   })
   verifyMfaSetup(
@@ -225,6 +300,69 @@ export class AuthController {
   ) {
     return this.mfaService.verifySetup(
       request.user.sub,
+      dto.code,
+    );
+  }
+
+  // =========================================================
+  // REGENERATE RECOVERY CODES
+  // =========================================================
+
+  @Post(
+    'mfa/recovery-codes/regenerate',
+  )
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard)
+  @Throttle({
+    default: {
+      limit:
+        3,
+
+      ttl:
+        60000,
+    },
+  })
+  regenerateRecoveryCodes(
+    @Req()
+    request: AuthenticatedRequest,
+
+    @Body()
+    dto: RegenerateRecoveryCodesDto,
+  ) {
+    return this.mfaService
+      .regenerateRecoveryCodes(
+        request.user.sub,
+        dto.currentPassword,
+        dto.code,
+      );
+  }
+
+  // =========================================================
+  // DISABLE MFA
+  // =========================================================
+
+  @Post('mfa/disable')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard)
+  @Throttle({
+    default: {
+      limit:
+        3,
+
+      ttl:
+        60000,
+    },
+  })
+  disableMfa(
+    @Req()
+    request: AuthenticatedRequest,
+
+    @Body()
+    dto: DisableMfaDto,
+  ) {
+    return this.mfaService.disable(
+      request.user.sub,
+      dto.currentPassword,
       dto.code,
     );
   }

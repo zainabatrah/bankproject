@@ -68,13 +68,14 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts       BankAccount[]
-  beneficiaries  Beneficiary[]
-  devices        Device[]
-  loginAttempts  LoginAttempt[]
-  auditLogs      AuditLog[]
-  securityEvents SecurityEvent[]
-  refreshTokens  RefreshToken[]
+  accounts         BankAccount[]
+  beneficiaries    Beneficiary[]
+  devices          Device[]
+  loginAttempts    LoginAttempt[]
+  auditLogs        AuditLog[]
+  securityEvents   SecurityEvent[]
+  refreshTokens    RefreshToken[]
+  mfaRecoveryCodes MfaRecoveryCode[]
 }
 
 model RefreshToken {
@@ -92,6 +93,20 @@ model RefreshToken {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+model MfaRecoveryCode {
+  id       Int    @id @default(autoincrement())
+  codeHash String @unique
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([userId, usedAt])
 }
 
 model BankAccount {
