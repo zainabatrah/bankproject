@@ -1,13 +1,25 @@
+import os
+import pytest
+
 from fastapi.testclient import TestClient
-from main import app
+from main import app, limiter
 
 
 client = TestClient(app)
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    limiter.reset()
+
+API_HEADERS = {
+    "X-API-Key": os.getenv("FRAUD_API_KEY")
+}
 
 
 def test_normal_transaction():
     response = client.post(
         "/analyze",
+        headers=API_HEADERS,
         json={
             "amount": 300,
             "average_amount": 250,
@@ -28,6 +40,7 @@ def test_normal_transaction():
 def test_suspicious_transaction():
     response = client.post(
         "/analyze",
+        headers=API_HEADERS,
         json={
             "amount": 7500,
             "average_amount": 250,
@@ -48,6 +61,7 @@ def test_suspicious_transaction():
 def test_invalid_transaction():
     response = client.post(
         "/analyze",
+        headers=API_HEADERS,
         json={
             "amount": -500,
             "average_amount": 250,
@@ -65,6 +79,7 @@ def test_invalid_transaction():
 def test_ml_fraud_prediction():
     response = client.post(
         "/predict",
+        headers=API_HEADERS,
         json={
             "amount": 7500,
             "average_amount": 250,
@@ -138,3 +153,85 @@ def test_pdf_security_report():
     ].startswith("application/pdf")
 
     assert response.content.startswith(b"%PDF")
+
+def test_analyze_requires_api_key():
+    response = client.post(
+        "/analyze",
+        json={
+            "amount": 300,
+            "average_amount": 250,
+            "new_device": False,
+            "new_beneficiary": False,
+            "transactions_last_hour": 1,
+            "failed_logins_last_hour": 0,
+            "transaction_hour": 14
+        }
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == (
+        "API key is required"
+    )
+
+def test_analyze_rejects_invalid_api_key():
+    response = client.post(
+        "/analyze",
+        headers={
+            "X-API-Key": "incorrect-key"
+        },
+        json={
+            "amount": 300,
+            "average_amount": 250,
+            "new_device": False,
+            "new_beneficiary": False,
+            "transactions_last_hour": 1,
+            "failed_logins_last_hour": 0,
+            "transaction_hour": 14
+        }
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == (
+        "Invalid API key"
+    )
+
+    #This test calls an endpoint and verifies that the
+    #  middleware added all four headers.
+
+    def test_analyze_rejects_invalid_api_key():
+        response = client.post(
+        "/analyze",
+        headers={
+            "X-API-Key": "incorrect-key"
+        },
+        json={
+            "amount": 300,
+            "average_amount": 250,
+            "new_device": False,
+            "new_beneficiary": False,
+            "transactions_last_hour": 1,
+            "failed_logins_last_hour": 0,
+            "transaction_hour": 14
+        }
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid API key"
+
+
+def test_security_headers():
+    response = client.get("/analytics/summary")
+
+    assert response.status_code == 200
+    assert response.headers[
+        "X-Content-Type-Options"
+    ] == "nosniff"
+    assert response.headers[
+        "X-Frame-Options"
+    ] == "DENY"
+    assert response.headers[
+        "Referrer-Policy"
+    ] == "no-referrer"
+    assert response.headers[
+        "Permissions-Policy"
+    ] == "camera=(), microphone=(), geolocation=()"

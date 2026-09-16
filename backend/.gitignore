@@ -56,3 +56,21 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /src/generated/prisma
+
+# Python virtual environment
+backend/fraud-service/.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Environment variables and passwords
+.env
+*.env
+!.env.example
+
+# IDE and operating-system files
+.vscode/
+.DS_Store
+Thumbs.db
