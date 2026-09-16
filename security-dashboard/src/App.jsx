@@ -24,8 +24,7 @@ import { useEffect, useState } from "react";
 import "./App.css";
 import { useLocation, useNavigate } from "react-router";
 import FraudAlertsPage from "./pages/FraudAlertsPage";
-
-const API_URL = "http://127.0.0.1:8001";
+import { socApi } from "./api";
 
 function App() {
   const location = useLocation();
@@ -61,49 +60,23 @@ function App() {
     async function loadDashboard() {
       try {
         const [
-          summaryResponse,
-          alertsResponse,
-          riskResponse,
-          dailyAlertsResponse,
-          caseStatusResponse,
+          summaryData,
+          alertsData,
+          riskDistribution,
+          dailyAlerts,
+          caseStatuses,
         ] = await Promise.all([
-          fetch(`${API_URL}/analytics/summary`),
-          fetch(`${API_URL}/alerts`),
-          fetch(
-            `${API_URL}/analytics/risk-distribution`
-          ),
-          fetch(`${API_URL}/analytics/alerts-per-day`),
-          fetch(`${API_URL}/analytics/cases-by-status`),
+          socApi.getSummary(),
+          socApi.getAlerts(),
+          socApi.getRiskDistribution(),
+          socApi.getAlertsPerDay(),
+          socApi.getCasesByStatus(),
         ]);
-
-        if (
-          !summaryResponse.ok ||
-          !alertsResponse.ok ||
-          !riskResponse.ok ||
-          !dailyAlertsResponse.ok ||
-          !caseStatusResponse.ok
-        ) {
-          throw new Error("Could not load dashboard");
-        }
-
-        const summaryData =
-          await summaryResponse.json();
-
-        const alertsData =
-          await alertsResponse.json();
-
-        const riskDistribution =
-          await riskResponse.json();
-
-        const dailyAlerts =
-          await dailyAlertsResponse.json();
-
-        const caseStatuses =
-          await caseStatusResponse.json();
         const caseColors = {
           OPEN: "#ef4444",
-          IN_PROGRESS: "#eab308",
-          CLOSED: "#22c55e",
+          INVESTIGATING: "#eab308",
+          RESOLVED: "#22c55e",
+          FALSE_POSITIVE: "#64748b",
         };
 
         const formattedCaseData = Object.entries(
@@ -114,7 +87,7 @@ function App() {
           color: caseColors[status],
         }));
 
-        setAlertsPerDay(dailyAlerts);
+        setAlertsPerDay(Array.isArray(dailyAlerts) ? dailyAlerts : []);
         setCaseStatusData(formattedCaseData);
 
         const colors = {
@@ -133,10 +106,16 @@ function App() {
         }));
 
         setSummary(summaryData);
-        setAlerts(alertsData.slice(0, 5));
+        setAlerts(
+          Array.isArray(alertsData) ? alertsData.slice(0, 5) : [],
+        );
         setRiskData(formattedRiskData);
-      } catch {
-        setError("FastAPI connection failed");
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Could not load the SOC dashboard",
+        );
       }
     }
 
@@ -418,7 +397,10 @@ function App() {
                 </p>
               </div>
 
-              <button className="primary-button">
+              <button
+                className="primary-button"
+                onClick={() => navigate("/alerts")}
+              >
                 View all alerts
               </button>
             </div>

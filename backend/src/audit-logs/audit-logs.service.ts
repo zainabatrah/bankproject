@@ -1,12 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '../generated/prisma/client.js';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { ListAuditLogsDto } from './dto/list-audit-logs.dto';
 
 @Injectable()
 export class AuditLogsService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async create(data: {
     userId?: number;
@@ -26,47 +26,98 @@ export class AuditLogsService {
     });
   }
 
-  async findAll() {
-    return this.prisma.auditLog.findMany({
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            role: true,
-          },
+  private buildWhere(query: ListAuditLogsDto): Prisma.AuditLogWhereInput {
+    const where: Prisma.AuditLogWhereInput = {};
+
+    if (query.action) {
+      where.action = { contains: query.action };
+    }
+    if (query.resource) {
+      where.resource = { contains: query.resource };
+    }
+    if (query.result) where.result = query.result;
+    if (query.userId) where.userId = query.userId;
+    if (query.from || query.to) {
+      where.createdAt = {
+        ...(query.from ? { gte: new Date(query.from) } : {}),
+        ...(query.to ? { lte: new Date(query.to) } : {}),
+      };
+    }
+
+    return where;
+  }
+
+  private getInclude() {
+    return {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
         },
       },
+    } as const;
+  }
 
-      orderBy: {
-        createdAt: 'desc',
-      },
+  async findAll(query?: ListAuditLogsDto) {
+    const filters = query ?? new ListAuditLogsDto();
+    return this.prisma.auditLog.findMany({
+      where: this.buildWhere(filters),
+      include: this.getInclude(),
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: filters.skip,
+      take: filters.limit,
     });
   }
 
-  async findByUser(userId: number) {
+  async findByUser(userId: number, query?: ListAuditLogsDto) {
+    const filters = query ?? new ListAuditLogsDto();
     return this.prisma.auditLog.findMany({
       where: {
+        ...this.buildWhere(filters),
         userId,
       },
-
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            role: true,
-          },
-        },
-      },
-
-      orderBy: {
-        createdAt: 'desc',
-      },
+      include: this.getInclude(),
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: filters.skip,
+      take: filters.limit,
     });
+  }
+
+  async findOne(id: number) {
+    const auditLog = await this.prisma.auditLog.findUnique({
+      where: { id },
+      include: this.getInclude(),
+    });
+
+    if (!auditLog) throw new NotFoundException('Audit log not found');
+    return auditLog;
+  }
+
+  async getSummary(query?: ListAuditLogsDto) {
+    const filters = query ?? new ListAuditLogsDto();
+    const logs = await this.prisma.auditLog.findMany({
+      where: this.buildWhere(filters),
+      select: { action: true, result: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const byAction: Record<string, number> = {};
+    const byResult: Record<string, number> = {};
+
+    for (const log of logs) {
+      byAction[log.action] = (byAction[log.action] ?? 0) + 1;
+      const result = log.result ?? 'UNKNOWN';
+      byResult[result] = (byResult[result] ?? 0) + 1;
+    }
+
+    return {
+      total: logs.length,
+      byAction,
+      byResult,
+      oldestAt: logs.at(-1)?.createdAt ?? null,
+      newestAt: logs[0]?.createdAt ?? null,
+    };
   }
 }

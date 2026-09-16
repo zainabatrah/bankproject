@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-
-const API_URL = "http://127.0.0.1:8001";
+import { socApi } from "../api";
 
 function FraudAlertsPage() {
     const [alerts, setAlerts] = useState([]);
@@ -25,16 +24,14 @@ function FraudAlertsPage() {
     useEffect(() => {
         async function loadAlerts() {
             try {
-                const response = await fetch(`${API_URL}/alerts`);
-
-                if (!response.ok) {
-                    throw new Error("Could not load fraud alerts");
-                }
-
-                const data = await response.json();
-                setAlerts(data);
-            } catch {
-                setError("Could not connect to FastAPI");
+                const data = await socApi.getAlerts();
+                setAlerts(Array.isArray(data) ? data : []);
+            } catch (requestError) {
+                setError(
+                    requestError instanceof Error
+                        ? requestError.message
+                        : "Could not load fraud alerts",
+                );
             } finally {
                 setLoading(false);
             }
@@ -75,26 +72,7 @@ function FraudAlertsPage() {
             setMessage("");
             setError("");
 
-            const response = await fetch(
-                `${API_URL}/alerts/${alert.id}/notes`,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        note: note.trim(),
-                    }),
-                }
-            );
-
-            if (!response.ok) {
-                const errorData = await response.json();
-
-                throw new Error(
-                    errorData.detail || "Could not save note"
-                );
-            }
+            await socApi.addNote(alert.id, note.trim());
 
             setMessage(
                 `Note added successfully to Alert #${alert.id}`
@@ -130,29 +108,19 @@ function FraudAlertsPage() {
             setMessage("");
             setError("");
 
-            const response = await fetch(
-                `${API_URL}/cases`,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        alert_id: alert.id,
-                        assigned_analyst: analyst.trim(),
-                        summary: summary.trim(),
-                    }),
-                }
+            await socApi.createCase({
+                alert_id: alert.id,
+                assigned_analyst: analyst.trim(),
+                summary: summary.trim(),
+            });
+
+            setAlerts((currentAlerts) =>
+                currentAlerts.map((currentAlert) =>
+                    currentAlert.id === alert.id
+                        ? { ...currentAlert, status: "INVESTIGATING" }
+                        : currentAlert,
+                ),
             );
-
-            if (!response.ok) {
-                const errorData = await response.json();
-
-                throw new Error(
-                    errorData.detail ||
-                    "Could not create investigation case"
-                );
-            }
 
             setMessage(
                 `Investigation case created for Alert #${alert.id}`
@@ -170,32 +138,7 @@ function FraudAlertsPage() {
             setMessage("");
             setError("");
 
-            const response = await fetch(
-                `${API_URL}/alerts/${alert.id}/status`,
-                {
-                    method: "PATCH",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        status: newStatus,
-                        actor: "Zainab",
-                    }),
-                }
-            );
-
-            if (!response.ok) {
-                const errorData = await response.json();
-
-                const errorMessage =
-                    typeof errorData.detail === "string"
-                        ? errorData.detail
-                        : JSON.stringify(errorData.detail);
-
-                throw new Error(
-                    errorMessage || "Could not update alert status"
-                );
-            }
+            await socApi.updateAlertStatus(alert.id, newStatus);
 
             setAlerts((currentAlerts) =>
                 currentAlerts.map((currentAlert) =>
@@ -204,8 +147,8 @@ function FraudAlertsPage() {
                             ...currentAlert,
                             status: newStatus,
                         }
-                        : currentAlert
-                )
+                        : currentAlert,
+                ),
             );
 
             setMessage(
@@ -360,17 +303,21 @@ function FraudAlertsPage() {
                                                         )
                                                     }
                                                 >
-                                                    <option value="NEW">New</option>
-
                                                     <option value="INVESTIGATING">
                                                         Investigating
+                                                    </option>
+
+                                                    <option value="OPEN">
+                                                        Open
                                                     </option>
 
                                                     <option value="RESOLVED">
                                                         Resolved
                                                     </option>
 
-
+                                                    <option value="FALSE_POSITIVE">
+                                                        False positive
+                                                    </option>
                                                 </select>
 
                                                 {updatingAlertStatusId === alert.id && (

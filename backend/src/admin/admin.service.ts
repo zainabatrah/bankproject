@@ -54,75 +54,72 @@ export class AdminService {
   // ==========================================
 
   async findUserById(id: number) {
-    const user =
-      await this.prisma.user.findUnique({
-        where: {
-          id,
-        },
+    const user = await this.prisma.user.findUnique({
+      where: {
+        id,
+      },
 
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          role: true,
-          status: true,
-          mfaEnabled: true,
-          createdAt: true,
-          updatedAt: true,
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        status: true,
+        mfaEnabled: true,
+        createdAt: true,
+        updatedAt: true,
 
-          accounts: {
-            select: {
-              id: true,
-              accountNumber: true,
-              balance: true,
-              currency: true,
-              createdAt: true,
-            },
-          },
-
-          devices: {
-            select: {
-              id: true,
-              deviceId: true,
-              browser: true,
-              os: true,
-              trusted: true,
-              firstSeen: true,
-              lastSeen: true,
-            },
-          },
-
-          loginAttempts: {
-            orderBy: {
-              createdAt: 'desc',
-            },
-
-            take: 10,
-
-            select: {
-              id: true,
-              successful: true,
-              deviceInfo: true,
-              ipAddress: true,
-              createdAt: true,
-            },
-          },
-
-          securityEvents: {
-            orderBy: {
-              createdAt: 'desc',
-            },
-
-            take: 10,
+        accounts: {
+          select: {
+            id: true,
+            accountNumber: true,
+            balance: true,
+            currency: true,
+            createdAt: true,
           },
         },
-      });
+
+        devices: {
+          select: {
+            id: true,
+            deviceId: true,
+            browser: true,
+            os: true,
+            trusted: true,
+            firstSeen: true,
+            lastSeen: true,
+          },
+        },
+
+        loginAttempts: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+
+          take: 10,
+
+          select: {
+            id: true,
+            successful: true,
+            deviceInfo: true,
+            ipAddress: true,
+            createdAt: true,
+          },
+        },
+
+        securityEvents: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+
+          take: 10,
+        },
+      },
+    });
 
     if (!user) {
-      throw new NotFoundException(
-        'User not found',
-      );
+      throw new NotFoundException('User not found');
     }
 
     return user;
@@ -143,67 +140,57 @@ export class AdminService {
       );
     }
 
-    const user =
-      await this.prisma.user.findUnique({
-        where: {
-          id: targetUserId,
-        },
-      });
+    const user = await this.prisma.user.findUnique({
+      where: {
+        id: targetUserId,
+      },
+    });
 
     if (!user) {
-      throw new NotFoundException(
-        'User not found',
-      );
+      throw new NotFoundException('User not found');
     }
 
-    const previousStatus =
-      user.status;
+    const previousStatus = user.status;
 
-    const updatedUser =
-      await this.prisma.user.update({
-        where: {
-          id: targetUserId,
-        },
+    const updatedUser = await this.prisma.user.update({
+      where: {
+        id: targetUserId,
+      },
 
-        data: {
-          status: dto.status,
-        },
+      data: {
+        status: dto.status,
+      },
 
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          role: true,
-          status: true,
-          updatedAt: true,
-        },
-      });
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        status: true,
+        updatedAt: true,
+      },
+    });
 
     await this.auditLogsService.create({
       userId: adminUserId,
 
-      action:
-        'USER_STATUS_CHANGED',
+      action: 'USER_STATUS_CHANGED',
 
-      resource:
-        `User:${targetUserId}`,
+      resource: `User:${targetUserId}`,
 
-      result:
-        'SUCCESS',
+      result: 'SUCCESS',
 
-      details:
-        JSON.stringify({
-          targetUserId,
-          email: user.email,
-          previousStatus,
-          newStatus: dto.status,
-        }),
+      details: JSON.stringify({
+        targetUserId,
+        email: user.email,
+        previousStatus,
+        newStatus: dto.status,
+      }),
     });
 
     return {
-      message:
-        'User status updated successfully',
+      message: 'User status updated successfully',
 
       user: updatedUser,
     };

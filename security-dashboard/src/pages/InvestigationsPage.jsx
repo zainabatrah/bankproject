@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-
-const API_URL = "http://127.0.0.1:8001";
+import { socApi } from "../api";
 
 function InvestigationsPage() {
   const [cases, setCases] = useState([]);
@@ -12,18 +11,8 @@ function InvestigationsPage() {
   useEffect(() => {
     async function loadCases() {
       try {
-        const response = await fetch(
-          `${API_URL}/cases`
-        );
-
-        if (!response.ok) {
-          throw new Error(
-            "Could not load investigation cases"
-          );
-        }
-
-        const data = await response.json();
-        setCases(data);
+        const data = await socApi.getCases();
+        setCases(Array.isArray(data) ? data : []);
       } catch (requestError) {
         setError(requestError.message);
       } finally {
@@ -35,48 +24,11 @@ function InvestigationsPage() {
   }, []);
 
   async function updateCaseStatus(item, newStatus) {
-    let outcome = item.outcome;
-
-    if (newStatus === "CLOSED" && !outcome) {
-      outcome = window.prompt(
-        "Enter outcome: CONFIRMED_FRAUD, FALSE_POSITIVE or INCONCLUSIVE"
-      );
-
-      if (!outcome) {
-        return;
-      }
-
-      outcome = outcome.toUpperCase();
-    }
-
     try {
       setUpdatingCaseId(item.id);
       setError("");
 
-      const response = await fetch(
-        `${API_URL}/cases/${item.id}/status`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            status: newStatus,
-            outcome:
-              newStatus === "CLOSED" ? outcome : null,
-            actor:
-              item.assigned_analyst || "Fraud Analyst",
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-
-        throw new Error(
-          errorData.detail || "Could not update case"
-        );
-      }
+      await socApi.updateCaseStatus(item.id, newStatus);
 
       setCases((currentCases) =>
         currentCases.map((currentCase) =>
@@ -85,8 +37,9 @@ function InvestigationsPage() {
                 ...currentCase,
                 status: newStatus,
                 outcome:
-                  newStatus === "CLOSED"
-                    ? outcome
+                  newStatus === "RESOLVED" ||
+                  newStatus === "FALSE_POSITIVE"
+                    ? newStatus
                     : null,
               }
             : currentCase
@@ -200,12 +153,16 @@ function InvestigationsPage() {
                               Open
                             </option>
 
-                            <option value="IN_PROGRESS">
-                              In Progress
+                            <option value="INVESTIGATING">
+                              Investigating
                             </option>
 
-                            <option value="CLOSED">
-                              Closed
+                            <option value="RESOLVED">
+                              Resolved
+                            </option>
+
+                            <option value="FALSE_POSITIVE">
+                              False positive
                             </option>
                           </select>
 

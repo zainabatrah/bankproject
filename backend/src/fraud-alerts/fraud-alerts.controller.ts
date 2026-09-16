@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Patch,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -17,10 +18,10 @@ import { Roles } from '../auth/roles.decorator';
 
 import { FraudAlertsService } from './fraud-alerts.service';
 
+import { ListFraudAlertsDto } from './dto/list-fraud-alerts.dto';
 import { UpdateFraudAlertStatusDto } from './dto/update-fraud-alert-status.dto';
 
-interface AuthenticatedRequest
-  extends Request {
+interface AuthenticatedRequest extends Request {
   user: {
     sub: number;
     email: string;
@@ -29,28 +30,23 @@ interface AuthenticatedRequest
 }
 
 @Controller('fraud-alerts')
-@UseGuards(
-  AuthGuard,
-  RolesGuard,
-)
-@Roles(
-  'FRAUD_ANALYST',
-  'SECURITY_ANALYST',
-  'ADMIN',
-)
+@UseGuards(AuthGuard, RolesGuard)
+@Roles('FRAUD_ANALYST', 'SECURITY_ANALYST', 'ADMIN')
 export class FraudAlertsController {
-  constructor(
-    private readonly fraudAlertsService:
-      FraudAlertsService,
-  ) {}
+  constructor(private readonly fraudAlertsService: FraudAlertsService) {}
 
   // ==========================================
   // GET ALL ALERTS
   // ==========================================
 
   @Get()
-  findAll() {
-    return this.fraudAlertsService.findAll();
+  findAll(@Query() query: ListFraudAlertsDto) {
+    return this.fraudAlertsService.findAll(query);
+  }
+
+  @Get('summary')
+  summary(@Query() query: ListFraudAlertsDto) {
+    return this.fraudAlertsService.getSummary(query);
   }
 
   // ==========================================
@@ -59,15 +55,10 @@ export class FraudAlertsController {
 
   @Get(':id')
   findOne(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
+    @Param('id', ParseIntPipe)
     id: number,
   ) {
-    return this.fraudAlertsService.findOne(
-      id,
-    );
+    return this.fraudAlertsService.findOne(id);
   }
 
   // ==========================================
@@ -76,10 +67,7 @@ export class FraudAlertsController {
 
   @Patch(':id/status')
   updateStatus(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
+    @Param('id', ParseIntPipe)
     id: number,
 
     @Body()
@@ -88,10 +76,6 @@ export class FraudAlertsController {
     @Req()
     request: AuthenticatedRequest,
   ) {
-    return this.fraudAlertsService.updateStatus(
-      id,
-      dto,
-      request.user.sub,
-    );
+    return this.fraudAlertsService.updateStatus(id, dto, request.user.sub);
   }
 }

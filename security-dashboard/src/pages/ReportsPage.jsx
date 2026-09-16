@@ -1,18 +1,24 @@
-const API_URL = "http://127.0.0.1:8001";
+import { useState } from "react";
+import { socApi } from "../api";
 
 function ReportsPage() {
-  function downloadAlertCsv() {
-    window.open(
-      `${API_URL}/reports/alerts.csv`,
-      "_blank"
-    );
-  }
+  const [downloading, setDownloading] = useState("");
+  const [error, setError] = useState("");
 
-  function downloadSecurityPdf() {
-    window.open(
-      `${API_URL}/reports/security-report.pdf`,
-      "_blank"
-    );
+  async function downloadReport(name, download) {
+    try {
+      setDownloading(name);
+      setError("");
+      await download();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not download report",
+      );
+    } finally {
+      setDownloading("");
+    }
   }
 
   return (
@@ -32,6 +38,8 @@ function ReportsPage() {
         </div>
       </header>
 
+      {error && <section className="content-panel"><p className="error-message">{error}</p></section>}
+
       <section className="reports-grid">
         <article className="report-card">
           <div className="report-icon">CSV</div>
@@ -45,27 +53,31 @@ function ReportsPage() {
 
           <button
             className="primary-button"
-            onClick={downloadAlertCsv}
+            disabled={downloading === "csv"}
+            onClick={() => downloadReport("csv", socApi.downloadAlertsCsv)}
           >
-            Download CSV
+            {downloading === "csv" ? "Downloading..." : "Download CSV"}
           </button>
         </article>
 
         <article className="report-card">
-          <div className="report-icon pdf">PDF</div>
+          <div className="report-icon pdf">JSON</div>
 
           <h2>Security Summary Report</h2>
 
           <p>
-            Download a formatted PDF containing security
-            statistics and recent fraud alerts.
+            Download a machine-readable report containing
+            current security statistics and alert analysis.
           </p>
 
           <button
             className="primary-button"
-            onClick={downloadSecurityPdf}
+            disabled={downloading === "security"}
+            onClick={() =>
+              downloadReport("security", socApi.downloadSecurityReport)
+            }
           >
-            Download PDF
+            {downloading === "security" ? "Downloading..." : "Download JSON"}
           </button>
         </article>
       </section>

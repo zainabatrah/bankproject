@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-
-const API_URL = "http://127.0.0.1:8001";
+import { socApi } from "../api";
 
 function SecurityEventsPage() {
   const [events, setEvents] = useState([]);
@@ -10,18 +9,14 @@ function SecurityEventsPage() {
   useEffect(() => {
     async function loadEvents() {
       try {
-        const response = await fetch(
-          `${API_URL}/security-events`
+        const data = await socApi.getSecurityEvents();
+        setEvents(Array.isArray(data) ? data : []);
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Could not load security events",
         );
-
-        if (!response.ok) {
-          throw new Error("Could not load events");
-        }
-
-        const data = await response.json();
-        setEvents(data);
-      } catch {
-        setError("Could not connect to FastAPI");
       } finally {
         setLoading(false);
       }

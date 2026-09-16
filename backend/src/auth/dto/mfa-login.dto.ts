@@ -1,8 +1,4 @@
-import {
-  IsString,
-  Matches,
-  MinLength,
-} from 'class-validator';
+import { IsString, Matches, MinLength } from 'class-validator';
 
 export class MfaLoginDto {
   @IsString()
@@ -11,8 +7,7 @@ export class MfaLoginDto {
 
   @IsString()
   @Matches(/^\d{6}$/, {
-    message:
-      'MFA code must contain exactly 6 digits',
+    message: 'MFA code must contain exactly 6 digits',
   })
   code: string;
 }

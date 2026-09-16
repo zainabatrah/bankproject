@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-
-const API_URL = "http://127.0.0.1:8001";
+import { socApi } from "../api";
 
 function AuditLogsPage() {
   const [logs, setLogs] = useState([]);
@@ -10,18 +9,14 @@ function AuditLogsPage() {
   useEffect(() => {
     async function loadAuditLogs() {
       try {
-        const response = await fetch(
-          `${API_URL}/audit-logs`
+        const data = await socApi.getAuditLogs();
+        setLogs(Array.isArray(data) ? data : []);
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Could not load audit logs",
         );
-
-        if (!response.ok) {
-          throw new Error("Could not load audit logs");
-        }
-
-        const data = await response.json();
-        setLogs(data);
-      } catch {
-        setError("Could not connect to FastAPI");
       } finally {
         setLoading(false);
       }

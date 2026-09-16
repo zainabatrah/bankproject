@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
@@ -20,11 +21,7 @@ export interface FraudAnalysisRequest {
 export interface FraudAnalysisResponse {
   risk_score: number;
 
-  risk_level:
-    | 'LOW'
-    | 'MEDIUM'
-    | 'HIGH'
-    | 'CRITICAL';
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
   flagged: boolean;
 
@@ -33,6 +30,7 @@ export interface FraudAnalysisResponse {
 
 @Injectable()
 export class FraudService {
+  private readonly logger = new Logger(FraudService.name);
   private readonly fraudEngineUrl: string;
 
   constructor(
@@ -40,9 +38,7 @@ export class FraudService {
     private readonly configService: ConfigService,
   ) {
     this.fraudEngineUrl =
-      this.configService.getOrThrow<string>(
-        'FRAUD_ENGINE_URL',
-      );
+      this.configService.getOrThrow<string>('FRAUD_ENGINE_URL');
   }
 
   async analyzeTransaction(
@@ -60,10 +56,7 @@ export class FraudService {
     } catch (error) {
       const axiosError = error as AxiosError;
 
-      console.error(
-        'Fraud engine error:',
-        axiosError.message,
-      );
+      this.logger.error(`Fraud engine request failed: ${axiosError.message}`);
 
       throw new ServiceUnavailableException(
         'Fraud detection service is unavailable',

@@ -11,12 +11,8 @@ import { FraudService } from './fraud.service';
     }),
   ],
 
-  providers: [
-    FraudService,
-  ],
+  providers: [FraudService],
 
-  exports: [
-    FraudService,
-  ],
+  exports: [FraudService],
 })
 export class FraudModule {}

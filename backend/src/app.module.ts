@@ -2,10 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 
-import {
-  ThrottlerGuard,
-  ThrottlerModule,
-} from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -21,13 +18,17 @@ import { DevicesModule } from './devices/devices.module';
 import { AdminModule } from './admin/admin.module';
 import { FraudAlertsModule } from './fraud-alerts/fraud-alerts.module';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
-
+import { SocModule } from './soc/soc.module';
+import { SecurityEventsModule } from './security-events/security-events.module';
+import { validateConfiguration } from './config/configuration';
 
 @Module({
   imports: [
     // Environment variables
     ConfigModule.forRoot({
       isGlobal: true,
+      cache: true,
+      validate: validateConfiguration,
     }),
 
     // Global rate limiting
@@ -50,17 +51,17 @@ import { AuditLogsModule } from './audit-logs/audit-logs.module';
     FraudModule,
     DevicesModule,
 
-    // Admin / RBAC module
+    // Admin / RBAC
     AdminModule,
 
+    // Security modules
     FraudAlertsModule,
-
     AuditLogsModule,
+    SocModule,
+    SecurityEventsModule,
   ],
 
-  controllers: [
-    AppController,
-  ],
+  controllers: [AppController],
 
   providers: [
     AppService,

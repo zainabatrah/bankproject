@@ -12,13 +12,14 @@ import {
 import { Request } from 'express';
 
 import { AuthGuard } from '../auth/auth.guard';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
 
 import { CreateTransferDto } from './dto/create-transfer.dto';
 
 import { TransactionsService } from './transactions.service';
 
-interface AuthenticatedRequest
-  extends Request {
+interface AuthenticatedRequest extends Request {
   user: {
     sub: number;
     email: string;
@@ -27,12 +28,10 @@ interface AuthenticatedRequest
 }
 
 @Controller('transactions')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, RolesGuard)
+@Roles('CUSTOMER', 'BANK_EMPLOYEE')
 export class TransactionsController {
-  constructor(
-    private readonly transactionsService:
-      TransactionsService,
-  ) {}
+  constructor(private readonly transactionsService: TransactionsService) {}
 
   @Post('transfer')
   transfer(
@@ -46,16 +45,10 @@ export class TransactionsController {
     deviceId: string,
   ) {
     if (!deviceId) {
-      throw new BadRequestException(
-        'X-Device-ID header is required',
-      );
+      throw new BadRequestException('X-Device-ID header is required');
     }
 
-    return this.transactionsService.transfer(
-      request.user.sub,
-      dto,
-      deviceId,
-    );
+    return this.transactionsService.transfer(request.user.sub, dto, deviceId);
   }
 
   @Get('me')
@@ -63,9 +56,6 @@ export class TransactionsController {
     @Req()
     request: AuthenticatedRequest,
   ) {
-    return this.transactionsService
-      .getMyTransactions(
-        request.user.sub,
-      );
+    return this.transactionsService.getMyTransactions(request.user.sub);
   }
 }

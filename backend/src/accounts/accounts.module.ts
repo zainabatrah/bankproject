@@ -5,20 +5,12 @@ import { AccountsController } from './accounts.controller';
 import { AccountsService } from './accounts.service';
 
 @Module({
-  imports: [
-    AuthModule,
-  ],
+  imports: [AuthModule],
 
-  controllers: [
-    AccountsController,
-  ],
+  controllers: [AccountsController],
 
-  providers: [
-    AccountsService,
-  ],
+  providers: [AccountsService],
 
-  exports: [
-    AccountsService,
-  ],
+  exports: [AccountsService],
 })
 export class AccountsModule {}

@@ -15,83 +15,63 @@ import { CreateTransferDto } from './dto/create-transfer.dto';
 @Injectable()
 export class TransactionsService {
   constructor(
-    private readonly prisma:
-      PrismaService,
+    private readonly prisma: PrismaService,
 
-    private readonly fraudService:
-      FraudService,
+    private readonly fraudService: FraudService,
 
-    private readonly devicesService:
-      DevicesService,
+    private readonly devicesService: DevicesService,
   ) {}
 
-  async transfer(
-    userId: number,
-    dto: CreateTransferDto,
-    deviceId: string,
-  ) {
+  async transfer(userId: number, dto: CreateTransferDto, deviceId: string) {
     // ----------------------------------
     // 1. VERIFY SENDER ACCOUNT
     // ----------------------------------
 
-    const senderAccount =
-      await this.prisma.bankAccount.findFirst({
-        where: {
-          id: dto.senderAccountId,
-          userId,
-        },
-      });
+    const senderAccount = await this.prisma.bankAccount.findFirst({
+      where: {
+        id: dto.senderAccountId,
+        userId,
+      },
+    });
 
     if (!senderAccount) {
-      throw new NotFoundException(
-        'Sender account not found',
-      );
+      throw new NotFoundException('Sender account not found');
     }
 
     // ----------------------------------
     // 2. VERIFY BENEFICIARY
     // ----------------------------------
 
-    const beneficiary =
-      await this.prisma.beneficiary.findFirst({
-        where: {
-          id: dto.beneficiaryId,
-          ownerId: userId,
-        },
-      });
+    const beneficiary = await this.prisma.beneficiary.findFirst({
+      where: {
+        id: dto.beneficiaryId,
+        ownerId: userId,
+      },
+    });
 
     if (!beneficiary) {
-      throw new NotFoundException(
-        'Beneficiary not found',
-      );
+      throw new NotFoundException('Beneficiary not found');
     }
 
     // ----------------------------------
     // 3. FIND RECEIVER ACCOUNT
     // ----------------------------------
 
-    const receiverAccount =
-      await this.prisma.bankAccount.findUnique({
-        where: {
-          accountNumber:
-            beneficiary.accountNumber,
-        },
-      });
+    const receiverAccount = await this.prisma.bankAccount.findUnique({
+      where: {
+        accountNumber: beneficiary.accountNumber,
+      },
+    });
 
     if (!receiverAccount) {
-      throw new NotFoundException(
-        'Beneficiary bank account not found',
-      );
+      throw new NotFoundException('Beneficiary bank account not found');
     }
 
     // ----------------------------------
     // 4. PREVENT SELF TRANSFER
     // ----------------------------------
 
-    if (
-      senderAccount.id ===
-      receiverAccount.id
-    ) {
+    if (senderAccount.id === receiverAccount.id) {
       throw new BadRequestException(
         'You cannot transfer money to the same account',
       );
@@ -101,34 +81,23 @@ export class TransactionsService {
     // 5. CHECK CURRENCY
     // ----------------------------------
 
-    if (
-      senderAccount.currency !==
-      receiverAccount.currency
-    ) {
-      throw new BadRequestException(
-        'Account currencies do not match',
-      );
+    if (senderAccount.currency !== receiverAccount.currency) {
+      throw new BadRequestException('Account currencies do not match');
     }
 
     // ----------------------------------
     // 6. CHECK BALANCE
     // ----------------------------------
 
-    if (
-      Number(senderAccount.balance) <
-      dto.amount
-    ) {
-      throw new BadRequestException(
-        'Insufficient balance',
-      );
+    if (Number(senderAccount.balance) < dto.amount) {
+      throw new BadRequestException('Insufficient balance');
     }
 
     // ----------------------------------
     // 7. CREATE TRANSACTION REFERENCE
     // ----------------------------------
 
-    const reference =
-      `TX-${randomUUID()}`;
+    const reference = `TX-${randomUUID()}`;
 
     // ==================================
     // CYBERSECURITY ANALYSIS
@@ -138,270 +107,199 @@ export class TransactionsService {
     // 8. CHECK DEVICE
     // ----------------------------------
 
-    const isNewDevice =
-      await this.devicesService.isNewDevice(
-        userId,
-        deviceId,
-      );
+    const isNewDevice = await this.devicesService.isNewDevice(userId, deviceId);
 
     // ----------------------------------
     // 9. COUNT TRANSACTIONS LAST HOUR
     // ----------------------------------
 
-    const oneHourAgo =
-      new Date(
-        Date.now() -
-          60 * 60 * 1000,
-      );
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-    const transactionsLastHour =
-      await this.prisma.transaction.count({
-        where: {
-          senderAccountId:
-            senderAccount.id,
+    const transactionsLastHour = await this.prisma.transaction.count({
+      where: {
+        senderAccountId: senderAccount.id,
 
-          createdAt: {
-            gte: oneHourAgo,
-          },
+        createdAt: {
+          gte: oneHourAgo,
         },
-      });
+      },
+    });
 
     // ----------------------------------
     // 10. CHECK BENEFICIARY AGE
     // ----------------------------------
 
-    const beneficiaryAge =
-      Date.now() -
-      beneficiary.createdAt.getTime();
+    const beneficiaryAge = Date.now() - beneficiary.createdAt.getTime();
 
-    const twentyFourHours =
-      24 * 60 * 60 * 1000;
+    const twentyFourHours = 24 * 60 * 60 * 1000;
 
-    const isNewBeneficiary =
-      beneficiaryAge <
-      twentyFourHours;
+    const isNewBeneficiary = beneficiaryAge < twentyFourHours;
 
     // ----------------------------------
     // 11. SEND DATA TO PYTHON
     // ----------------------------------
 
-    const fraudResult =
-      await this.fraudService
-        .analyzeTransaction({
-          transaction_id:
-            reference,
+    const fraudResult = await this.fraudService.analyzeTransaction({
+      transaction_id: reference,
 
-          user_id:
-            userId,
+      user_id: userId,
 
-          amount:
-            dto.amount,
+      amount: dto.amount,
 
-          new_device:
-            isNewDevice,
+      new_device: isNewDevice,
 
-          new_beneficiary:
-            isNewBeneficiary,
+      new_beneficiary: isNewBeneficiary,
 
-          transactions_last_hour:
-            transactionsLastHour,
+      transactions_last_hour: transactionsLastHour,
 
-          transaction_hour:
-            new Date().getHours(),
-        });
+      transaction_hour: new Date().getHours(),
+    });
 
     // ==================================
     // HIGH / CRITICAL RISK
     // ==================================
 
     if (fraudResult.flagged) {
-      return this.prisma.$transaction(
-        async (tx) => {
-          // Create transaction but
-          // DO NOT move money.
+      return this.prisma.$transaction(async (tx) => {
+        // Create transaction but
+        // DO NOT move money.
 
-          const transaction =
-            await tx.transaction.create({
-              data: {
-                reference,
+        const transaction = await tx.transaction.create({
+          data: {
+            reference,
 
-                amount:
-                  dto.amount,
+            amount: dto.amount,
 
-                currency:
-                  senderAccount.currency,
+            currency: senderAccount.currency,
 
-                description:
-                  dto.description?.trim(),
+            description: dto.description?.trim(),
 
-                type:
-                  'TRANSFER',
+            type: 'TRANSFER',
 
-                status:
-                  'FLAGGED',
+            status: 'FLAGGED',
 
-                senderAccountId:
-                  senderAccount.id,
+            senderAccountId: senderAccount.id,
 
-                receiverAccountId:
-                  receiverAccount.id,
+            receiverAccountId: receiverAccount.id,
 
-                riskScore:
-                  fraudResult.risk_score,
+            riskScore: fraudResult.risk_score,
 
-                riskLevel:
-                  fraudResult.risk_level,
-              },
-            });
+            riskLevel: fraudResult.risk_level,
+          },
+        });
 
-          // Create security alert
+        // Create security alert
 
-          const fraudAlert =
-            await tx.fraudAlert.create({
-              data: {
-                transactionId:
-                  transaction.id,
+        const fraudAlert = await tx.fraudAlert.create({
+          data: {
+            transactionId: transaction.id,
 
-                riskScore:
-                  fraudResult.risk_score,
+            riskScore: fraudResult.risk_score,
 
-                riskLevel:
-                  fraudResult.risk_level,
+            riskLevel: fraudResult.risk_level,
 
-                reason:
-                  fraudResult.reasons.join(
-                    '; ',
-                  ),
-              },
-            });
+            reason: fraudResult.reasons.join('; '),
+          },
+        });
 
-          return {
-            message:
-              'Transaction flagged for security review',
+        return {
+          message: 'Transaction flagged for security review',
 
-            transaction,
+          transaction,
 
-            fraudAlert,
+          fraudAlert,
 
-            fraudAnalysis:
-              fraudResult,
-          };
-        },
-      );
+          fraudAnalysis: fraudResult,
+        };
+      });
     }
 
     // ==================================
     // LOW / MEDIUM RISK
     // ==================================
 
-    return this.prisma.$transaction(
-      async (tx) => {
-        // --------------------------------
-        // 12. DEBIT SENDER
-        // --------------------------------
+    return this.prisma.$transaction(async (tx) => {
+      // --------------------------------
+      // 12. DEBIT SENDER
+      // --------------------------------
 
-        const debitResult =
-          await tx.bankAccount.updateMany({
-            where: {
-              id:
-                senderAccount.id,
+      const debitResult = await tx.bankAccount.updateMany({
+        where: {
+          id: senderAccount.id,
 
-              userId,
+          userId,
 
-              balance: {
-                gte:
-                  dto.amount,
-              },
-            },
-
-            data: {
-              balance: {
-                decrement:
-                  dto.amount,
-              },
-            },
-          });
-
-        if (
-          debitResult.count !== 1
-        ) {
-          throw new BadRequestException(
-            'Insufficient balance',
-          );
-        }
-
-        // --------------------------------
-        // 13. CREDIT RECEIVER
-        // --------------------------------
-
-        await tx.bankAccount.update({
-          where: {
-            id:
-              receiverAccount.id,
+          balance: {
+            gte: dto.amount,
           },
+        },
 
-          data: {
-            balance: {
-              increment:
-                dto.amount,
-            },
+        data: {
+          balance: {
+            decrement: dto.amount,
           },
-        });
+        },
+      });
 
-        // --------------------------------
-        // 14. SAVE TRANSACTION
-        // --------------------------------
+      if (debitResult.count !== 1) {
+        throw new BadRequestException('Insufficient balance');
+      }
 
-        const transaction =
-          await tx.transaction.create({
-            data: {
-              reference,
+      // --------------------------------
+      // 13. CREDIT RECEIVER
+      // --------------------------------
 
-              amount:
-                dto.amount,
+      await tx.bankAccount.update({
+        where: {
+          id: receiverAccount.id,
+        },
 
-              currency:
-                senderAccount.currency,
+        data: {
+          balance: {
+            increment: dto.amount,
+          },
+        },
+      });
 
-              description:
-                dto.description?.trim(),
+      // --------------------------------
+      // 14. SAVE TRANSACTION
+      // --------------------------------
 
-              type:
-                'TRANSFER',
+      const transaction = await tx.transaction.create({
+        data: {
+          reference,
 
-              status:
-                'COMPLETED',
+          amount: dto.amount,
 
-              senderAccountId:
-                senderAccount.id,
+          currency: senderAccount.currency,
 
-              receiverAccountId:
-                receiverAccount.id,
+          description: dto.description?.trim(),
 
-              riskScore:
-                fraudResult.risk_score,
+          type: 'TRANSFER',
 
-              riskLevel:
-                fraudResult.risk_level,
-            },
-          });
+          status: 'COMPLETED',
 
-        return {
-          message:
-            'Transaction completed successfully',
+          senderAccountId: senderAccount.id,
 
-          transaction,
+          receiverAccountId: receiverAccount.id,
 
-          fraudAnalysis:
-            fraudResult,
-        };
-      },
-    );
+          riskScore: fraudResult.risk_score,
+
+          riskLevel: fraudResult.risk_level,
+        },
+      });
+
+      return {
+        message: 'Transaction completed successfully',
+
+        transaction,
+
+        fraudAnalysis: fraudResult,
+      };
+    });
   }
 
-  async getMyTransactions(
-    userId: number,
-  ) {
+  async getMyTransactions(userId: number) {
     return this.prisma.transaction.findMany({
       where: {
         OR: [
@@ -428,11 +326,9 @@ export class TransactionsService {
         type: true,
         status: true,
 
-        senderAccountId:
-          true,
+        senderAccountId: true,
 
-        receiverAccountId:
-          true,
+        receiverAccountId: true,
 
         riskScore: true,
         riskLevel: true,

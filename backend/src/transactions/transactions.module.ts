@@ -8,22 +8,12 @@ import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
 
 @Module({
-  imports: [
-    AuthModule,
-    FraudModule,
-    DevicesModule,
-  ],
+  imports: [AuthModule, FraudModule, DevicesModule],
 
-  controllers: [
-    TransactionsController,
-  ],
+  controllers: [TransactionsController],
 
-  providers: [
-    TransactionsService,
-  ],
+  providers: [TransactionsService],
 
-  exports: [
-    TransactionsService,
-  ],
+  exports: [TransactionsService],
 })
 export class TransactionsModule {}

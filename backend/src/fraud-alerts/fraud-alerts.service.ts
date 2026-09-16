@@ -1,11 +1,14 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { Prisma } from '../generated/prisma/client.js';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 
+import { ListFraudAlertsDto } from './dto/list-fraud-alerts.dto';
 import { UpdateFraudAlertStatusDto } from './dto/update-fraud-alert-status.dto';
 
 @Injectable()
@@ -13,16 +16,38 @@ export class FraudAlertsService {
   constructor(
     private readonly prisma: PrismaService,
 
-    private readonly auditLogsService:
-      AuditLogsService,
+    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   // ==========================================
   // GET ALL FRAUD ALERTS
   // ==========================================
 
-  async findAll() {
+  async findAll(query?: ListFraudAlertsDto) {
+    const filters = query ?? new ListFraudAlertsDto();
+    const where: Prisma.FraudAlertWhereInput = {};
+    const riskLevel = filters.riskLevel ?? filters.severity;
+
+    if (riskLevel) where.riskLevel = riskLevel;
+    if (filters.status) where.status = filters.status;
+    if (
+      filters.minRiskScore !== undefined ||
+      filters.maxRiskScore !== undefined
+    ) {
+      where.riskScore = {
+        ...(filters.minRiskScore !== undefined
+          ? { gte: filters.minRiskScore }
+          : {}),
+        ...(filters.maxRiskScore !== undefined
+          ? { lte: filters.maxRiskScore }
+          : {}),
+      };
+    }
+
     return this.prisma.fraudAlert.findMany({
+      where,
+      skip: filters.skip,
+      take: filters.limit,
       include: {
         transaction: {
           include: {
@@ -69,66 +94,104 @@ export class FraudAlertsService {
     });
   }
 
+  async getSummary(query?: ListFraudAlertsDto) {
+    const filters = query ?? new ListFraudAlertsDto();
+    const where: Prisma.FraudAlertWhereInput = {};
+    const riskLevel = filters.riskLevel ?? filters.severity;
+
+    if (riskLevel) where.riskLevel = riskLevel;
+    if (filters.status) where.status = filters.status;
+    if (
+      filters.minRiskScore !== undefined ||
+      filters.maxRiskScore !== undefined
+    ) {
+      where.riskScore = {
+        ...(filters.minRiskScore !== undefined
+          ? { gte: filters.minRiskScore }
+          : {}),
+        ...(filters.maxRiskScore !== undefined
+          ? { lte: filters.maxRiskScore }
+          : {}),
+      };
+    }
+
+    const alerts = await this.prisma.fraudAlert.findMany({
+      where,
+      select: { riskLevel: true, status: true },
+    });
+    const byRiskLevel: Record<string, number> = {};
+    const byStatus: Record<string, number> = {};
+
+    for (const alert of alerts) {
+      byRiskLevel[alert.riskLevel] = (byRiskLevel[alert.riskLevel] ?? 0) + 1;
+      byStatus[alert.status] = (byStatus[alert.status] ?? 0) + 1;
+    }
+
+    return {
+      total: alerts.length,
+      open: (byStatus.OPEN ?? 0) + (byStatus.INVESTIGATING ?? 0),
+      byRiskLevel,
+      byStatus,
+    };
+  }
+
   // ==========================================
   // GET ONE ALERT
   // ==========================================
 
   async findOne(id: number) {
-    const alert =
-      await this.prisma.fraudAlert.findUnique({
-        where: {
-          id,
-        },
+    const alert = await this.prisma.fraudAlert.findUnique({
+      where: {
+        id,
+      },
 
-        include: {
-          transaction: {
-            include: {
-              senderAccount: {
-                select: {
-                  id: true,
-                  accountNumber: true,
-                  balance: true,
-                  currency: true,
+      include: {
+        transaction: {
+          include: {
+            senderAccount: {
+              select: {
+                id: true,
+                accountNumber: true,
+                balance: true,
+                currency: true,
 
-                  user: {
-                    select: {
-                      id: true,
-                      email: true,
-                      firstName: true,
-                      lastName: true,
-                      status: true,
-                    },
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    status: true,
                   },
                 },
               },
+            },
 
-              receiverAccount: {
-                select: {
-                  id: true,
-                  accountNumber: true,
-                  balance: true,
-                  currency: true,
+            receiverAccount: {
+              select: {
+                id: true,
+                accountNumber: true,
+                balance: true,
+                currency: true,
 
-                  user: {
-                    select: {
-                      id: true,
-                      email: true,
-                      firstName: true,
-                      lastName: true,
-                      status: true,
-                    },
+                user: {
+                  select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    status: true,
                   },
                 },
               },
             },
           },
         },
-      });
+      },
+    });
 
     if (!alert) {
-      throw new NotFoundException(
-        'Fraud alert not found',
-      );
+      throw new NotFoundException('Fraud alert not found');
     }
 
     return alert;
@@ -143,40 +206,41 @@ export class FraudAlertsService {
     dto: UpdateFraudAlertStatusDto,
     analystUserId: number,
   ) {
-    const existingAlert =
-      await this.prisma.fraudAlert.findUnique({
-        where: {
-          id,
-        },
+    const existingAlert = await this.prisma.fraudAlert.findUnique({
+      where: {
+        id,
+      },
 
-        include: {
-          transaction: true,
-        },
-      });
+      include: {
+        transaction: true,
+      },
+    });
 
     if (!existingAlert) {
-      throw new NotFoundException(
-        'Fraud alert not found',
+      throw new NotFoundException('Fraud alert not found');
+    }
+
+    const oldStatus = existingAlert.status;
+
+    if (oldStatus === dto.status) {
+      throw new BadRequestException(
+        'Fraud alert already has the requested status',
       );
     }
 
-    const oldStatus =
-      existingAlert.status;
+    const updatedAlert = await this.prisma.fraudAlert.update({
+      where: {
+        id,
+      },
 
-    const updatedAlert =
-      await this.prisma.fraudAlert.update({
-        where: {
-          id,
-        },
+      data: {
+        status: dto.status,
+      },
 
-        data: {
-          status: dto.status,
-        },
-
-        include: {
-          transaction: true,
-        },
-      });
+      include: {
+        transaction: true,
+      },
+    });
 
     // ========================================
     // CREATE AUDIT LOG
@@ -185,39 +249,29 @@ export class FraudAlertsService {
     await this.auditLogsService.create({
       userId: analystUserId,
 
-      action:
-        'FRAUD_ALERT_STATUS_CHANGED',
+      action: 'FRAUD_ALERT_STATUS_CHANGED',
 
-      resource:
-        `FraudAlert:${id}`,
+      resource: `FraudAlert:${id}`,
 
-      result:
-        'SUCCESS',
+      result: 'SUCCESS',
 
-      details:
-        JSON.stringify({
-          fraudAlertId: id,
+      details: JSON.stringify({
+        fraudAlertId: id,
 
-          transactionId:
-            updatedAlert.transactionId,
+        transactionId: updatedAlert.transactionId,
 
-          previousStatus:
-            oldStatus,
+        previousStatus: oldStatus,
 
-          newStatus:
-            dto.status,
+        newStatus: dto.status,
 
-          riskScore:
-            updatedAlert.riskScore,
+        riskScore: updatedAlert.riskScore,
 
-          riskLevel:
-            updatedAlert.riskLevel,
-        }),
+        riskLevel: updatedAlert.riskLevel,
+      }),
     });
 
     return {
-      message:
-        'Fraud alert status updated successfully',
+      message: 'Fraud alert status updated successfully',
 
       alert: updatedAlert,
     };

@@ -8,8 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-
-const API_URL = "http://127.0.0.1:8001";
+import { socApi } from "../api";
 
 function SecurityEventsChart() {
   const [events, setEvents] = useState([]);
@@ -17,15 +16,7 @@ function SecurityEventsChart() {
   useEffect(() => {
     async function loadEvents() {
       try {
-        const response = await fetch(
-          `${API_URL}/analytics/security-events-by-type`
-        );
-
-        if (!response.ok) {
-          throw new Error("Could not load events");
-        }
-
-        const data = await response.json();
+        const data = await socApi.getSecurityEventsByType();
 
         const formattedData = Object.entries(data).map(
           ([eventType, count]) => ({

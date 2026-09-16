@@ -2,73 +2,53 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseIntPipe,
   Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
 
-import {
-  Throttle,
-} from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 
-import type {
-  Request,
-} from 'express';
+import type { Request } from 'express';
 
-import {
-  AuthService,
-} from './auth.service';
+import { AuthService } from './auth.service';
 
-import {
-  AuthGuard,
-} from './auth.guard';
+import { AuthGuard } from './auth.guard';
 
-import {
-  MfaService,
-} from './mfa.service';
+import { MfaService } from './mfa.service';
 
-import {
-  RegisterDto,
-} from './dto/register.dto';
+import { RegisterDto } from './dto/register.dto';
 
-import {
-  LoginDto,
-} from './dto/login.dto';
+import { LoginDto } from './dto/login.dto';
 
-import {
-  RefreshTokenDto,
-} from './dto/refresh-token.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
-import {
-  VerifyMfaDto,
-} from './dto/verify-mfa.dto';
+import { VerifyMfaDto } from './dto/verify-mfa.dto';
 
-import {
-  MfaLoginDto,
-} from './dto/mfa-login.dto';
+import { MfaLoginDto } from './dto/mfa-login.dto';
 
-import {
-  DisableMfaDto,
-} from './dto/disable-mfa.dto';
+import { DisableMfaDto } from './dto/disable-mfa.dto';
 
-import {
-  MfaRecoveryLoginDto,
-} from './dto/mfa-recovery-login.dto';
+import { MfaRecoveryLoginDto } from './dto/mfa-recovery-login.dto';
 
-import {
-  RegenerateRecoveryCodesDto,
-} from './dto/regenerate-recovery-codes.dto';
+import { RegenerateRecoveryCodesDto } from './dto/regenerate-recovery-codes.dto';
 
-import {
-  UsersService,
-} from '../users/users.service';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
-interface AuthenticatedRequest
-  extends Request {
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+
+import { ResetPasswordDto } from './dto/reset-password.dto';
+
+import { UsersService } from '../users/users.service';
+
+interface AuthenticatedRequest extends Request {
   user: {
     sub: number;
     email: string;
@@ -79,14 +59,11 @@ interface AuthenticatedRequest
 @Controller('auth')
 export class AuthController {
   constructor(
-    private readonly authService:
-      AuthService,
+    private readonly authService: AuthService,
 
-    private readonly usersService:
-      UsersService,
+    private readonly usersService: UsersService,
 
-    private readonly mfaService:
-      MfaService,
+    private readonly mfaService: MfaService,
   ) {}
 
   // =========================================================
@@ -99,9 +76,7 @@ export class AuthController {
     @Body()
     registerDto: RegisterDto,
   ) {
-    return this.authService.register(
-      registerDto,
-    );
+    return this.authService.register(registerDto);
   }
 
   // =========================================================
@@ -112,11 +87,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({
     default: {
-      limit:
-        5,
-
-      ttl:
-        60000,
+      limit: 5,
+      ttl: 60000,
     },
   })
   login(
@@ -133,32 +105,29 @@ export class AuthController {
     userAgent?: string,
   ) {
     if (!deviceId) {
-      throw new BadRequestException(
-        'X-Device-ID header is required',
-      );
+      throw new BadRequestException('X-Device-ID header is required');
     }
 
-    return this.authService.login(
-      loginDto,
-      deviceId,
-      userAgent,
-      request.ip,
-    );
+    return this.authService.login(loginDto, deviceId, userAgent, request.ip);
   }
 
   // =========================================================
   // NORMAL MFA LOGIN
   // =========================================================
 
+  @Post('sessions/revoke-all')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard)
+  revokeAllSessions(@Req() request: AuthenticatedRequest) {
+    return this.authService.revokeAllSessions(request.user.sub);
+  }
+
   @Post('mfa/login-verify')
   @HttpCode(HttpStatus.OK)
   @Throttle({
     default: {
-      limit:
-        5,
-
-      ttl:
-        60000,
+      limit: 5,
+      ttl: 60000,
     },
   })
   verifyMfaLogin(
@@ -168,11 +137,7 @@ export class AuthController {
     @Req()
     request: Request,
   ) {
-    return this.authService.verifyMfaLogin(
-      dto.mfaToken,
-      dto.code,
-      request.ip,
-    );
+    return this.authService.verifyMfaLogin(dto.mfaToken, dto.code, request.ip);
   }
 
   // =========================================================
@@ -183,11 +148,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({
     default: {
-      limit:
-        5,
-
-      ttl:
-        60000,
+      limit: 5,
+      ttl: 60000,
     },
   })
   recoveryLogin(
@@ -197,40 +159,34 @@ export class AuthController {
     @Req()
     request: Request,
   ) {
-    return this.authService
-      .verifyMfaRecoveryLogin(
-        dto.mfaToken,
-        dto.recoveryCode,
-        request.ip,
-      );
+    return this.authService.verifyMfaRecoveryLogin(
+      dto.mfaToken,
+      dto.recoveryCode,
+      request.ip,
+    );
   }
 
   // =========================================================
-  // REFRESH
+  // REFRESH TOKEN
   // =========================================================
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @Throttle({
     default: {
-      limit:
-        10,
-
-      ttl:
-        60000,
+      limit: 10,
+      ttl: 60000,
     },
   })
   refresh(
     @Body()
     dto: RefreshTokenDto,
   ) {
-    return this.authService.refresh(
-      dto.refreshToken,
-    );
+    return this.authService.refresh(dto.refreshToken);
   }
 
   // =========================================================
-  // LOGOUT
+  // LOGOUT CURRENT SESSION
   // =========================================================
 
   @Post('logout')
@@ -239,9 +195,7 @@ export class AuthController {
     @Body()
     dto: RefreshTokenDto,
   ) {
-    return this.authService.logout(
-      dto.refreshToken,
-    );
+    return this.authService.logout(dto.refreshToken);
   }
 
   // =========================================================
@@ -254,9 +208,116 @@ export class AuthController {
     @Req()
     request: AuthenticatedRequest,
   ) {
-    return this.usersService.findById(
+    return this.usersService.findById(request.user.sub);
+  }
+
+  // =========================================================
+  // CHANGE PASSWORD
+  // =========================================================
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard)
+  @Throttle({
+    default: {
+      limit: 5,
+      ttl: 60000,
+    },
+  })
+  changePassword(
+    @Req()
+    request: AuthenticatedRequest,
+
+    @Body()
+    dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(
       request.user.sub,
+      dto.currentPassword,
+      dto.newPassword,
     );
+  }
+
+  // =========================================================
+  // FORGOT PASSWORD
+  // =========================================================
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({
+    default: {
+      limit: 3,
+      ttl: 60000,
+    },
+  })
+  forgotPassword(
+    @Body()
+    dto: ForgotPasswordDto,
+  ) {
+    return this.authService.forgotPassword(dto.email);
+  }
+
+  // =========================================================
+  // RESET PASSWORD
+  // =========================================================
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({
+    default: {
+      limit: 3,
+      ttl: 60000,
+    },
+  })
+  resetPassword(
+    @Body()
+    dto: ResetPasswordDto,
+  ) {
+    return this.authService.resetPassword(dto.token, dto.newPassword);
+  }
+
+  // =========================================================
+  // LIST ACTIVE SESSIONS
+  // =========================================================
+
+  @Get('sessions')
+  @UseGuards(AuthGuard)
+  getSessions(
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
+    return this.authService.getSessions(request.user.sub);
+  }
+
+  // =========================================================
+  // REVOKE ONE SESSION
+  // =========================================================
+
+  @Delete('sessions/:id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard)
+  revokeSession(
+    @Req()
+    request: AuthenticatedRequest,
+
+    @Param('id', ParseIntPipe)
+    sessionId: number,
+  ) {
+    return this.authService.revokeSession(request.user.sub, sessionId);
+  }
+
+  // =========================================================
+  // LOGOUT ALL SESSIONS
+  // =========================================================
+
+  @Post('sessions/logout-all')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard)
+  logoutAllSessions(
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
+    return this.authService.revokeAllSessions(request.user.sub);
   }
 
   // =========================================================
@@ -270,9 +331,7 @@ export class AuthController {
     @Req()
     request: AuthenticatedRequest,
   ) {
-    return this.mfaService.setup(
-      request.user.sub,
-    );
+    return this.mfaService.setup(request.user.sub);
   }
 
   // =========================================================
@@ -284,11 +343,8 @@ export class AuthController {
   @UseGuards(AuthGuard)
   @Throttle({
     default: {
-      limit:
-        5,
-
-      ttl:
-        60000,
+      limit: 5,
+      ttl: 60000,
     },
   })
   verifyMfaSetup(
@@ -298,28 +354,20 @@ export class AuthController {
     @Body()
     dto: VerifyMfaDto,
   ) {
-    return this.mfaService.verifySetup(
-      request.user.sub,
-      dto.code,
-    );
+    return this.mfaService.verifySetup(request.user.sub, dto.code);
   }
 
   // =========================================================
-  // REGENERATE RECOVERY CODES
+  // REGENERATE MFA RECOVERY CODES
   // =========================================================
 
-  @Post(
-    'mfa/recovery-codes/regenerate',
-  )
+  @Post('mfa/recovery-codes/regenerate')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthGuard)
   @Throttle({
     default: {
-      limit:
-        3,
-
-      ttl:
-        60000,
+      limit: 3,
+      ttl: 60000,
     },
   })
   regenerateRecoveryCodes(
@@ -329,12 +377,11 @@ export class AuthController {
     @Body()
     dto: RegenerateRecoveryCodesDto,
   ) {
-    return this.mfaService
-      .regenerateRecoveryCodes(
-        request.user.sub,
-        dto.currentPassword,
-        dto.code,
-      );
+    return this.mfaService.regenerateRecoveryCodes(
+      request.user.sub,
+      dto.currentPassword,
+      dto.code,
+    );
   }
 
   // =========================================================
@@ -346,11 +393,8 @@ export class AuthController {
   @UseGuards(AuthGuard)
   @Throttle({
     default: {
-      limit:
-        3,
-
-      ttl:
-        60000,
+      limit: 3,
+      ttl: 60000,
     },
   })
   disableMfa(

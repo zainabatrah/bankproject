@@ -7,3 +7,6 @@ fraud-engine/.venv/
 fraud-engine/__pycache__/ 
 *.pyc 
 .env 
+**/.env
+**/.env.*
+!**/.env.example

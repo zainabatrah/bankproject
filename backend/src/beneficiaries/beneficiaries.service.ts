@@ -9,29 +9,20 @@ import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 
 @Injectable()
 export class BeneficiariesService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async create(
-    userId: number,
-    dto: CreateBeneficiaryDto,
-  ) {
-    const accountNumber =
-      dto.accountNumber.trim();
+  async create(userId: number, dto: CreateBeneficiaryDto) {
+    const accountNumber = dto.accountNumber.trim();
 
     // Check that the receiver account really exists
-    const receiverAccount =
-      await this.prisma.bankAccount.findUnique({
-        where: {
-          accountNumber,
-        },
-      });
+    const receiverAccount = await this.prisma.bankAccount.findUnique({
+      where: {
+        accountNumber,
+      },
+    });
 
     if (!receiverAccount) {
-      throw new NotFoundException(
-        'Bank account does not exist',
-      );
+      throw new NotFoundException('Bank account does not exist');
     }
 
     // Prevent adding your own account as beneficiary
@@ -42,27 +33,22 @@ export class BeneficiariesService {
     }
 
     // Prevent duplicate beneficiary
-    const existing =
-      await this.prisma.beneficiary.findFirst({
-        where: {
-          ownerId: userId,
-          accountNumber,
-        },
-      });
+    const existing = await this.prisma.beneficiary.findFirst({
+      where: {
+        ownerId: userId,
+        accountNumber,
+      },
+    });
 
     if (existing) {
-      throw new BadRequestException(
-        'Beneficiary already exists',
-      );
+      throw new BadRequestException('Beneficiary already exists');
     }
 
     return this.prisma.beneficiary.create({
       data: {
         name: dto.name.trim(),
         accountNumber,
-        bankName:
-          dto.bankName?.trim() ??
-          'BankShield',
+        bankName: dto.bankName?.trim() ?? 'BankShield',
         ownerId: userId,
       },
     });
@@ -79,22 +65,16 @@ export class BeneficiariesService {
     });
   }
 
-  async remove(
-    userId: number,
-    beneficiaryId: number,
-  ) {
-    const beneficiary =
-      await this.prisma.beneficiary.findFirst({
-        where: {
-          id: beneficiaryId,
-          ownerId: userId,
-        },
-      });
+  async remove(userId: number, beneficiaryId: number) {
+    const beneficiary = await this.prisma.beneficiary.findFirst({
+      where: {
+        id: beneficiaryId,
+        ownerId: userId,
+      },
+    });
 
     if (!beneficiary) {
-      throw new NotFoundException(
-        'Beneficiary not found',
-      );
+      throw new NotFoundException('Beneficiary not found');
     }
 
     await this.prisma.beneficiary.delete({
@@ -104,8 +84,7 @@ export class BeneficiariesService {
     });
 
     return {
-      message:
-        'Beneficiary deleted successfully',
+      message: 'Beneficiary deleted successfully',
     };
   }
 }

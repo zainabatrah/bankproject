@@ -7,52 +7,35 @@ import {
 
 import { Reflector } from '@nestjs/core';
 
-import {
-  AppRole,
-  ROLES_KEY,
-} from './roles.decorator';
+import { AppRole, ROLES_KEY } from './roles.decorator';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(
-    private readonly reflector: Reflector,
-  ) {}
+  constructor(private readonly reflector: Reflector) {}
 
-  canActivate(
-    context: ExecutionContext,
-  ): boolean {
-    const requiredRoles =
-      this.reflector.getAllAndOverride<AppRole[]>(
-        ROLES_KEY,
-        [
-          context.getHandler(),
-          context.getClass(),
-        ],
-      );
+  canActivate(context: ExecutionContext): boolean {
+    const requiredRoles = this.reflector.getAllAndOverride<AppRole[]>(
+      ROLES_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
     // No @Roles() means no role restriction.
-    if (
-      !requiredRoles ||
-      requiredRoles.length === 0
-    ) {
+    if (!requiredRoles || requiredRoles.length === 0) {
       return true;
     }
 
-    const request =
-      context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest<{
+      user?: {
+        sub: number;
+        email: string;
+        role: AppRole;
+      };
+    }>();
 
-    const user = request.user as
-      | {
-          sub: number;
-          email: string;
-          role: AppRole;
-        }
-      | undefined;
+    const user = request.user;
 
     if (!user) {
-      throw new ForbiddenException(
-        'User information is missing',
-      );
+      throw new ForbiddenException('User information is missing');
     }
 
     if (!requiredRoles.includes(user.role)) {

@@ -9,92 +9,67 @@ import {
   UseGuards,
 } from '@nestjs/common';
 
-import type { Request } from 'express';
-
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { UsersService } from '../users/users.service';
 
-import { AdminService } from './admin.service';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 
-interface AuthenticatedRequest
-  extends Request {
+type AuthenticatedRequest = {
   user: {
     sub: number;
     email: string;
     role: string;
   };
-}
+};
 
 @Controller('admin')
-@UseGuards(
-  AuthGuard,
-  RolesGuard,
-)
+@UseGuards(AuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class AdminController {
-  constructor(
-    private readonly adminService:
-      AdminService,
-  ) {}
-
-  @Get('test')
-  testAdminAccess() {
-    return {
-      message:
-        'Admin authorization successful',
-    };
-  }
-
-  // ==========================================
-  // ALL USERS
-  // ==========================================
+  constructor(private readonly usersService: UsersService) {}
 
   @Get('users')
-  findAllUsers() {
-    return this.adminService.findAllUsers();
+  getUsers() {
+    return this.usersService.findAll();
   }
-
-  // ==========================================
-  // USER DETAILS
-  // ==========================================
 
   @Get('users/:id')
-  findUserById(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
-    id: number,
+  getUser(
+    @Param('id', ParseIntPipe)
+    userId: number,
   ) {
-    return this.adminService.findUserById(
-      id,
-    );
+    return this.usersService.findById(userId);
   }
 
-  // ==========================================
-  // CHANGE ACCOUNT STATUS
-  // ==========================================
+  @Patch('users/:id/role')
+  updateUserRole(
+    @Req()
+    request: AuthenticatedRequest,
+
+    @Param('id', ParseIntPipe)
+    userId: number,
+
+    @Body()
+    dto: UpdateUserRoleDto,
+  ) {
+    return this.usersService.updateRole(request.user.sub, userId, dto.role);
+  }
 
   @Patch('users/:id/status')
   updateUserStatus(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
-    id: number,
+    @Req()
+    request: AuthenticatedRequest,
+
+    @Param('id', ParseIntPipe)
+    userId: number,
 
     @Body()
     dto: UpdateUserStatusDto,
-
-    @Req()
-    request: AuthenticatedRequest,
   ) {
-    return this.adminService.updateUserStatus(
-      id,
-      dto,
-      request.user.sub,
-    );
+    return this.usersService.updateStatus(request.user.sub, userId, dto.status);
   }
 }

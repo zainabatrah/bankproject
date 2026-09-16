@@ -7,21 +7,12 @@ import { FraudAlertsController } from './fraud-alerts.controller';
 import { FraudAlertsService } from './fraud-alerts.service';
 
 @Module({
-  imports: [
-    AuthModule,
-    AuditLogsModule,
-  ],
+  imports: [AuthModule, AuditLogsModule],
 
-  controllers: [
-    FraudAlertsController,
-  ],
+  controllers: [FraudAlertsController],
 
-  providers: [
-    FraudAlertsService,
-  ],
+  providers: [FraudAlertsService],
 
-  exports: [
-    FraudAlertsService,
-  ],
+  exports: [FraudAlertsService],
 })
 export class FraudAlertsModule {}
