@@ -1,5 +1,5 @@
 from fastapi import Request
-
+import logging
 from slowapi import Limiter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -21,7 +21,7 @@ import secrets
 from fastapi.security import APIKeyHeader
 import csv
 import io
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone
 from typing import Literal
@@ -86,6 +86,25 @@ app.add_exception_handler(
     RateLimitExceeded,
     _rate_limit_exceeded_handler
 )
+
+@app.exception_handler(Exception)
+async def handle_unexpected_error(
+    request: Request,
+    exception: Exception
+):
+    logger.exception(
+        "Unexpected server error while processing %s %s",
+        request.method,
+        request.url.path,
+        exc_info=exception
+    )
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An unexpected server error occurred"
+        }
+    )
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
