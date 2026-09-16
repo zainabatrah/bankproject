@@ -1,3 +1,10 @@
+from fastapi import Request
+
+from slowapi import Limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+import os
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import getSampleStyleSheet
@@ -9,6 +16,9 @@ from reportlab.platypus import (
     Table,
     TableStyle
 )
+from dotenv import load_dotenv
+import secrets
+from fastapi.security import APIKeyHeader
 import csv
 import io
 from fastapi.responses import StreamingResponse
@@ -28,10 +38,54 @@ import pandas as pd
 from pydantic import BaseModel
 from pydantic import BaseModel, Field
 
+load_dotenv()
 
+FRAUD_API_KEY = os.getenv("FRAUD_API_KEY")
+
+if not FRAUD_API_KEY:
+    raise RuntimeError(
+        "FRAUD_API_KEY is missing from the .env file"
+    )
+
+api_key_header = APIKeyHeader(
+    name="X-API-Key",
+    auto_error=False
+)
+
+
+def verify_fraud_api_key(
+    provided_key: str | None = Depends(api_key_header)
+):
+    if provided_key is None:
+        raise HTTPException(
+            status_code=401,
+            detail="API key is required"
+        )
+
+    if not secrets.compare_digest(
+        provided_key,
+        FRAUD_API_KEY
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key"
+        )
+
+    return provided_key
 
 # Create the FastAPI application
 app = FastAPI(title="Bank Fraud Detection API")
+
+limiter = Limiter(
+    key_func=get_remote_address
+)
+
+app.state.limiter = limiter
+
+app.add_exception_handler(
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler
+)
 
 allowed_origins = [
     "http://localhost:5173",
@@ -243,11 +297,22 @@ def home():
 
 # Endpoint that analyzes a transaction
 @app.post("/analyze")
-def analyze(transaction: Transaction):
+@limiter.limit("10/minute")
+def analyze(
+    request: Request,
+    transaction: Transaction,
+    _api_key: str = Depends(verify_fraud_api_key)
+):
     return analyze_transaction(transaction)
 
+
 @app.post("/predict")
-def predict_fraud(transaction: Transaction):
+@limiter.limit("10/minute")
+def predict_fraud(
+    request: Request,
+    transaction: Transaction,
+    _api_key: str = Depends(verify_fraud_api_key)
+):
     transaction_data = pd.DataFrame([
         transaction.model_dump()
     ])
@@ -257,13 +322,18 @@ def predict_fraud(transaction: Transaction):
     )
 
     fraud_probability = float(
-        ml_model.predict_proba(transaction_data)[0][1]
+        ml_model.predict_proba(
+            transaction_data
+        )[0][1]
     )
 
     return {
         "prediction": prediction,
         "is_fraud": prediction == 1,
-        "fraud_probability": round(fraud_probability, 4)
+        "fraud_probability": round(
+            fraud_probability,
+            4
+        )
     }
 
 @app.post("/evaluate")
