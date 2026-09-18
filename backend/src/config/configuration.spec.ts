@@ -40,4 +40,33 @@ describe('validateConfiguration', () => {
       }),
     ).toThrow('JWT_SECRET');
   });
+
+  it('requires explicit CORS origins in production', () => {
+    expect(() =>
+      validateConfiguration({
+        ...validConfiguration,
+        NODE_ENV: 'production',
+        CORS_ORIGINS: '',
+      }),
+    ).toThrow('CORS_ORIGINS must be explicitly configured in production');
+  });
+
+  it('rejects localhost service URLs in production', () => {
+    expect(() =>
+      validateConfiguration({
+        ...validConfiguration,
+        NODE_ENV: 'production',
+        DATABASE_URL:
+          'postgresql://postgres:password@localhost:5432/bankshield',
+      }),
+    ).toThrow('DATABASE_URL must not point to localhost in production');
+
+    expect(() =>
+      validateConfiguration({
+        ...validConfiguration,
+        NODE_ENV: 'production',
+        FRAUD_ENGINE_URL: 'http://127.0.0.1:8000',
+      }),
+    ).toThrow('FRAUD_ENGINE_URL must not point to localhost in production');
+  });
 });

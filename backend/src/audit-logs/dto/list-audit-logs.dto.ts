@@ -19,6 +19,16 @@ export class ListAuditLogsDto extends PaginationDto {
   @IsOptional()
   @IsString()
   @MaxLength(150)
+  q?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  search?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
   resource?: string;
 
   @IsOptional()
@@ -33,10 +43,24 @@ export class ListAuditLogsDto extends PaginationDto {
   userId?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  user_id?: number;
+
+  @IsOptional()
   @IsDateString()
   from?: string;
 
   @IsOptional()
   @IsDateString()
   to?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 }

@@ -4,6 +4,8 @@ import {
   Controller,
   Get,
   Headers,
+  Param,
+  ParseIntPipe,
   Post,
   Req,
   UseGuards,
@@ -16,6 +18,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 
 import { CreateTransferDto } from './dto/create-transfer.dto';
+import { ReverseTransactionDto } from './dto/reverse-transaction.dto';
 
 import { TransactionsService } from './transactions.service';
 
@@ -43,12 +46,24 @@ export class TransactionsController {
 
     @Headers('x-device-id')
     deviceId: string,
+
+    @Headers('x-idempotency-key')
+    idempotencyKey?: string,
   ) {
     if (!deviceId) {
       throw new BadRequestException('X-Device-ID header is required');
     }
 
-    return this.transactionsService.transfer(request.user.sub, dto, deviceId);
+    if (idempotencyKey && idempotencyKey.trim().length > 120) {
+      throw new BadRequestException('X-Idempotency-Key is too long');
+    }
+
+    return this.transactionsService.transfer(
+      request.user.sub,
+      dto,
+      deviceId,
+      idempotencyKey,
+    );
   }
 
   @Get('me')
@@ -57,5 +72,23 @@ export class TransactionsController {
     request: AuthenticatedRequest,
   ) {
     return this.transactionsService.getMyTransactions(request.user.sub);
+  }
+
+  @Post(':id/reverse')
+  reverse(
+    @Req()
+    request: AuthenticatedRequest,
+
+    @Param('id', ParseIntPipe)
+    transactionId: number,
+
+    @Body()
+    dto: ReverseTransactionDto,
+  ) {
+    return this.transactionsService.reverse(
+      request.user.sub,
+      transactionId,
+      dto.reason,
+    );
   }
 }

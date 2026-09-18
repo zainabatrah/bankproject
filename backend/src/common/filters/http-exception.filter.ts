@@ -34,12 +34,24 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (isServerError) {
       const stack = exception instanceof Error ? exception.stack : undefined;
       this.logger.error(
-        `${request.method} ${request.originalUrl ?? request.url} ${status} [${requestId}]`,
+        JSON.stringify({
+          event: 'http_request_failed',
+          requestId,
+          method: request.method,
+          path: request.originalUrl ?? request.url,
+          statusCode: status,
+        }),
         stack,
       );
     } else {
       this.logger.warn(
-        `${request.method} ${request.originalUrl ?? request.url} ${status} [${requestId}]`,
+        JSON.stringify({
+          event: 'http_request_rejected',
+          requestId,
+          method: request.method,
+          path: request.originalUrl ?? request.url,
+          statusCode: status,
+        }),
       );
     }
 

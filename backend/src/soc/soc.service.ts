@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -23,6 +27,18 @@ type RawAlert = {
     currency: string;
     status: string;
   };
+};
+
+type RawInvestigationCase = {
+  id: number;
+  alertId: number;
+  status: FraudAlertStatus;
+  assignedAnalyst: string;
+  summary: string;
+  outcome: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  alert: RawAlert;
 };
 
 @Injectable()
@@ -68,12 +84,26 @@ export class SocService {
     };
   }
 
+  private mapCase(investigationCase: RawInvestigationCase) {
+    return {
+      id: investigationCase.id,
+      alert_id: investigationCase.alertId,
+      status: investigationCase.status,
+      assigned_analyst: investigationCase.assignedAnalyst,
+      summary: investigationCase.summary,
+      outcome: investigationCase.outcome,
+      alert: this.mapAlert(investigationCase.alert),
+      created_at: investigationCase.createdAt.toISOString(),
+      updated_at: investigationCase.updatedAt.toISOString(),
+    };
+  }
+
   async getSummary() {
     const [totalAlerts, criticalAlerts, openCases, totalSecurityEvents] =
       await Promise.all([
         this.prisma.fraudAlert.count(),
         this.prisma.fraudAlert.count({ where: { riskLevel: 'CRITICAL' } }),
-        this.prisma.fraudAlert.count({
+        this.prisma.investigationCase.count({
           where: { status: { in: ['OPEN', 'INVESTIGATING'] } },
         }),
         this.prisma.securityEvent.count(),
@@ -132,8 +162,13 @@ export class SocService {
       FALSE_POSITIVE: 0,
     };
 
-    for (const alert of await this.getRawAlerts()) {
-      counts[alert.status] = (counts[alert.status] ?? 0) + 1;
+    for (const investigationCase of await this.prisma.investigationCase.findMany(
+      {
+        select: { status: true },
+      },
+    )) {
+      counts[investigationCase.status] =
+        (counts[investigationCase.status] ?? 0) + 1;
     }
 
     return counts;
@@ -206,21 +241,25 @@ export class SocService {
   }
 
   async getCases() {
-    const alerts = await this.getRawAlerts();
+    const cases = await this.prisma.investigationCase.findMany({
+      include: {
+        alert: {
+          include: {
+            transaction: {
+              select: {
+                reference: true,
+                amount: true,
+                currency: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
 
-    return alerts.map((alert) => ({
-      id: alert.id,
-      alert_id: alert.id,
-      status: alert.status,
-      assigned_analyst: null,
-      summary: alert.reason,
-      outcome:
-        alert.status === 'FALSE_POSITIVE' || alert.status === 'RESOLVED'
-          ? alert.status
-          : null,
-      created_at: alert.createdAt.toISOString(),
-      updated_at: alert.updatedAt.toISOString(),
-    }));
+    return cases.map((investigationCase) => this.mapCase(investigationCase));
   }
 
   async updateAlertStatus(
@@ -269,27 +308,66 @@ export class SocService {
     });
     if (!alert) throw new NotFoundException('Fraud alert not found');
 
+    const existingCase = await this.prisma.investigationCase.findUnique({
+      where: { alertId },
+    });
+    if (existingCase) {
+      throw new BadRequestException(
+        'An investigation case already exists for this alert',
+      );
+    }
+
     if (alert.status === 'OPEN') {
       await this.updateAlertStatus(alertId, 'INVESTIGATING', analystUserId);
     }
 
+    const investigationCase = await this.prisma.investigationCase.create({
+      data: {
+        alertId,
+        assignedAnalyst: assignedAnalyst.trim(),
+        summary: summary.trim(),
+        status:
+          alert.status === 'RESOLVED' || alert.status === 'FALSE_POSITIVE'
+            ? alert.status
+            : 'INVESTIGATING',
+        outcome:
+          alert.status === 'RESOLVED' || alert.status === 'FALSE_POSITIVE'
+            ? alert.status
+            : null,
+        createdById: analystUserId,
+        updatedById: analystUserId,
+      },
+      include: {
+        alert: {
+          include: {
+            transaction: {
+              select: {
+                reference: true,
+                amount: true,
+                currency: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
     await this.auditLogsService.create({
       userId: analystUserId,
       action: 'INVESTIGATION_CASE_CREATED',
-      resource: `FraudAlert:${alertId}`,
+      resource: `InvestigationCase:${investigationCase.id}`,
       result: 'SUCCESS',
       details: JSON.stringify({
+        alertId,
         assignedAnalyst: assignedAnalyst.trim(),
         summary: summary.trim(),
       }),
     });
 
-    const createdCase = (await this.getCases()).find(
-      (item) => item.alert_id === alertId,
-    );
     return {
       message: `Investigation case created for Alert #${alertId}`,
-      case: createdCase,
+      case: this.mapCase(investigationCase),
     };
   }
 
@@ -298,11 +376,66 @@ export class SocService {
     status: FraudAlertStatus,
     analystUserId: number,
   ) {
-    await this.updateAlertStatus(id, status, analystUserId);
-    const updatedCase = (await this.getCases()).find((item) => item.id === id);
+    const investigationCase = await this.prisma.investigationCase.findUnique({
+      where: { id },
+      include: { alert: true },
+    });
+    if (!investigationCase) {
+      throw new NotFoundException('Investigation case not found');
+    }
+
+    if (investigationCase.status === status) {
+      throw new BadRequestException(
+        'Investigation case already has the requested status',
+      );
+    }
+
+    await this.updateAlertStatus(
+      investigationCase.alertId,
+      status,
+      analystUserId,
+    );
+
+    const updatedCase = await this.prisma.investigationCase.update({
+      where: { id },
+      data: {
+        status,
+        outcome:
+          status === 'RESOLVED' || status === 'FALSE_POSITIVE' ? status : null,
+        updatedById: analystUserId,
+      },
+      include: {
+        alert: {
+          include: {
+            transaction: {
+              select: {
+                reference: true,
+                amount: true,
+                currency: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    await this.auditLogsService.create({
+      userId: analystUserId,
+      action: 'INVESTIGATION_CASE_STATUS_CHANGED',
+      resource: `InvestigationCase:${id}`,
+      result: 'SUCCESS',
+      details: JSON.stringify({
+        caseId: id,
+        alertId: investigationCase.alertId,
+        previousStatus: investigationCase.status,
+        newStatus: status,
+      }),
+    });
+
     return {
       message: 'Investigation case status updated successfully',
-      case: updatedCase,
+      case: this.mapCase(updatedCase),
     };
   }
 

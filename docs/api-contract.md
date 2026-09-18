@@ -1,454 +1,157 @@
-\# BankShield API Contract
+# BankShield API Contract
 
+This document captures the integration contract used by the BankShield frontend, SOC dashboard, NestJS backend, and Python fraud service.
 
+## Services
 
-\## 1. System Architecture
+```text
+Banking frontend      -> NestJS backend
+Security dashboard   -> NestJS backend
+NestJS backend       -> PostgreSQL
+NestJS backend       -> Python fraud service
+```
 
+Default local URLs:
 
+- NestJS backend: `http://localhost:3000`
+- Python fraud service: `http://localhost:8000`
+- Banking frontend: `http://localhost:5173`
+- Security dashboard: `http://localhost:5174`
 
-BankShield contains three main parts:
+## Authentication
 
+Most protected endpoints use:
 
+```http
+Authorization: Bearer <access-token>
+```
 
-1\. Frontend
+Transfer creation also requires:
 
-&#x20;  - React
+```http
+X-Device-ID: <stable-device-id>
+X-Idempotency-Key: <optional-client-generated-key>
+```
 
-&#x20;  - TypeScript
+## Key backend endpoints
 
+### Health
 
+```http
+GET /health
+```
 
-2\. Banking Backend
+Public endpoint returning API and database health without secrets.
 
-&#x20;  - NestJS
+### Authentication
 
-&#x20;  - TypeScript
+```http
+POST /auth/register
+POST /auth/login
+POST /auth/refresh
+POST /auth/logout
+POST /auth/change-password
+POST /auth/forgot-password
+POST /auth/reset-password
+POST /auth/mfa/setup
+POST /auth/mfa/verify-setup
+POST /auth/mfa/login-verify
+GET  /auth/me
+GET  /auth/sessions
+DELETE /auth/sessions/:id
+POST /auth/sessions/logout-all
+```
 
-&#x20;  - PostgreSQL
+### Banking
 
-&#x20;  - Prisma
+```http
+GET  /accounts/me
+GET  /beneficiaries
+POST /beneficiaries
+POST /transactions/transfer
+GET  /transactions/me
+POST /transactions/:id/reverse
+```
 
+Transfer outcomes:
 
+- `COMPLETED`: money moved.
+- `FLAGGED`: no money moved; fraud alert created.
+- `REJECTED`: no money moved; used for fraud-service failure handling.
+- `REVERSED`: completed transfer was reversed.
 
-3\. Fraud Detection Engine
+### Fraud alerts and SOC
 
-&#x20;  - Python
+```http
+GET   /fraud-alerts
+GET   /fraud-alerts/:id
+GET   /fraud-alerts/summary
+PATCH /fraud-alerts/:id/status
 
-&#x20;  - FastAPI
+GET   /soc/summary
+GET   /soc/alerts
+PATCH /soc/alerts/:id/status
+POST  /soc/alerts/:id/notes
+GET   /soc/cases
+POST  /soc/cases
+PATCH /soc/cases/:id/status
+GET   /soc/analytics/risk-distribution
+GET   /soc/analytics/alerts-per-day
+GET   /soc/analytics/cases-by-status
+GET   /soc/analytics/security-events-by-type
+GET   /soc/reports/alerts.csv
+GET   /soc/reports/security-report.json
+```
 
-&#x20;  - Scikit-learn
+### Security events and audit logs
 
+```http
+GET /security-events
+GET /security-events/:id
+GET /security-events/summary
+GET /security-events/types
 
+GET /audit-logs
+GET /audit-logs/:id
+GET /audit-logs/summary
+```
 
-Architecture:
+Security events and audit logs support pagination and filtering. There are no edit or delete endpoints for audit logs.
 
+## Fraud service contract
 
+The NestJS backend calls the fraud service before creating a transfer result.
 
-Frontend
+### Request
 
-&#x20;  |
-
-&#x20;  v
-
-NestJS Backend
-
-&#x20;  |
-
-&#x20;  +------> PostgreSQL
-
-&#x20;  |
-
-&#x20;  v
-
-Python Fraud Engine
-
-
-
-
-
-\## 2. Main Integration
-
-
-
-The banking backend sends transaction information
-
-to the fraud detection engine.
-
-
-
-Endpoint:
-
-
-
+```http
 POST /analyze-transaction
+Content-Type: application/json
+```
 
-
-
-
-
-\## 3. Transaction Analysis Request
-
-
-
-Example request:
-
-
-
+```json
 {
-
-&#x20; "transactionId": "TX-10001",
-
-&#x20; "userId": 15,
-
-&#x20; "amount": 2500,
-
-&#x20; "currency": "USD",
-
-&#x20; "newDevice": true,
-
-&#x20; "newBeneficiary": false,
-
-&#x20; "transactionsLastHour": 3,
-
-&#x20; "transactionHour": 14
-
+  "transaction_id": "TX-uuid",
+  "user_id": 15,
+  "amount": 2500,
+  "new_device": true,
+  "new_beneficiary": false,
+  "transactions_last_hour": 3,
+  "transaction_hour": 14
 }
+```
 
+### Response
 
-
-
-
-\## 4. Request Fields
-
-
-
-transactionId
-
-\- Type: string
-
-\- Unique transaction identifier
-
-
-
-userId
-
-\- Type: number
-
-\- User who performs the transaction
-
-
-
-amount
-
-\- Type: number
-
-\- Transaction amount
-
-
-
-currency
-
-\- Type: string
-
-\- Example: USD, EUR, LBP
-
-
-
-newDevice
-
-\- Type: boolean
-
-\- true if the device was not previously trusted
-
-
-
-newBeneficiary
-
-\- Type: boolean
-
-\- true if the beneficiary was recently added
-
-
-
-transactionsLastHour
-
-\- Type: number
-
-\- Number of transactions made during the last hour
-
-
-
-transactionHour
-
-\- Type: number
-
-\- Hour of the transaction from 0 to 23
-
-
-
-
-
-\## 5. Fraud Engine Response
-
-
-
-Example:
-
-
-
+```json
 {
-
-&#x20; "riskScore": 72,
-
-&#x20; "riskLevel": "HIGH",
-
-&#x20; "flagged": true,
-
-&#x20; "reasons": \[
-
-&#x20;   "Unusual transaction amount",
-
-&#x20;   "New device"
-
-&#x20; ]
-
+  "risk_score": 72,
+  "risk_level": "HIGH",
+  "flagged": true,
+  "reasons": ["Unusual transaction amount", "New device"]
 }
+```
 
+`risk_level` must be one of `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL`.
 
-
-
-
-\## 6. Response Fields
-
-
-
-riskScore
-
-\- Type: number
-
-\- Range: 0 to 100
-
-
-
-riskLevel
-
-\- Type: string
-
-\- Possible values:
-
-&#x20; LOW
-
-&#x20; MEDIUM
-
-&#x20; HIGH
-
-&#x20; CRITICAL
-
-
-
-flagged
-
-\- Type: boolean
-
-\- true if the transaction needs review
-
-
-
-reasons
-
-\- Type: array of strings
-
-\- Explains why the risk score increased
-
-
-
-
-
-\## 7. Risk Levels
-
-
-
-0 - 29
-
-LOW
-
-
-
-30 - 59
-
-MEDIUM
-
-
-
-60 - 79
-
-HIGH
-
-
-
-80 - 100
-
-CRITICAL
-
-
-
-
-
-\## 8. Initial Fraud Rules
-
-
-
-Rule 1:
-
-If amount > 5000
-
-Risk +30
-
-
-
-Rule 2:
-
-If newDevice = true
-
-Risk +20
-
-
-
-Rule 3:
-
-If newBeneficiary = true
-
-Risk +15
-
-
-
-Rule 4:
-
-If transactionsLastHour > 5
-
-Risk +25
-
-
-
-Rule 5:
-
-If transactionHour is between 00:00 and 05:00
-
-Risk +10
-
-
-
-Maximum risk score:
-
-100
-
-
-
-
-
-\## 9. Banking Backend Responsibilities
-
-
-
-Person 1 is responsible for:
-
-
-
-\- User registration
-
-\- Login
-
-\- JWT authentication
-
-\- MFA
-
-\- Users
-
-\- Bank accounts
-
-\- Beneficiaries
-
-\- Transactions
-
-\- Transaction history
-
-\- Account balance
-
-\- Customer dashboard
-
-\- PostgreSQL database
-
-\- Prisma
-
-\- NestJS API
-
-
-
-
-
-\## 10. Fraud Engine Responsibilities
-
-
-
-Person 2 is responsible for:
-
-
-
-\- Python FastAPI service
-
-\- Synthetic transaction data
-
-\- Fraud rules
-
-\- Risk scoring
-
-\- Fraud alerts
-
-\- Machine learning
-
-\- Model training
-
-\- Fraud prediction
-
-\- Security analytics
-
-\- Fraud analyst dashboard
-
-
-
-
-
-\## 11. Integration Rule
-
-
-
-Person 1 must send transaction data using:
-
-
-
-POST /analyze-transaction
-
-
-
-Person 2 must return:
-
-
-
-{
-
-&#x20; "riskScore": number,
-
-&#x20; "riskLevel": string,
-
-&#x20; "flagged": boolean,
-
-&#x20; "reasons": string\[]
-
-}
-
-
-
-Both sides must follow this contract so they can be
-
-developed independently and integrated later.
-
+When the fraud service is unavailable, the backend records a `REJECTED` transaction, emits a `FRAUD_SERVICE_UNAVAILABLE` security event, writes an audit log entry, and returns a safe `503` response.

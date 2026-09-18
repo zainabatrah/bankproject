@@ -28,6 +28,7 @@ export class AuditLogsService {
 
   private buildWhere(query: ListAuditLogsDto): Prisma.AuditLogWhereInput {
     const where: Prisma.AuditLogWhereInput = {};
+    const search = query.q ?? query.search;
 
     if (query.action) {
       where.action = { contains: query.action };
@@ -36,11 +37,25 @@ export class AuditLogsService {
       where.resource = { contains: query.resource };
     }
     if (query.result) where.result = query.result;
-    if (query.userId) where.userId = query.userId;
-    if (query.from || query.to) {
+    if (query.userId ?? query.user_id)
+      where.userId = query.userId ?? query.user_id;
+
+    if (search) {
+      where.OR = [
+        { action: { contains: search } },
+        { resource: { contains: search } },
+        { result: { contains: search } },
+        { details: { contains: search } },
+      ];
+    }
+
+    const from = query.from ?? query.startDate;
+    const to = query.to ?? query.endDate;
+
+    if (from || to) {
       where.createdAt = {
-        ...(query.from ? { gte: new Date(query.from) } : {}),
-        ...(query.to ? { lte: new Date(query.to) } : {}),
+        ...(from ? { gte: new Date(from) } : {}),
+        ...(to ? { lte: new Date(to) } : {}),
       };
     }
 

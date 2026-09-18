@@ -33,10 +33,13 @@ export class SecurityEventsService {
     if (riskLevel) where.riskLevel = riskLevel;
     const userId = query.userId ?? query.user_id;
     if (userId) where.userId = userId;
-    if (query.from || query.to) {
+    const from = query.from ?? query.startDate;
+    const to = query.to ?? query.endDate;
+
+    if (from || to) {
       where.createdAt = {
-        ...(query.from ? { gte: new Date(query.from) } : {}),
-        ...(query.to ? { lte: new Date(query.to) } : {}),
+        ...(from ? { gte: new Date(from) } : {}),
+        ...(to ? { lte: new Date(to) } : {}),
       };
     }
 

@@ -1,16 +1,21 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 import { PrismaService } from '../prisma/prisma.service';
-import { FraudService } from '../fraud/fraud.service';
+import { FraudAnalysisResponse, FraudService } from '../fraud/fraud.service';
 import { DevicesService } from '../devices/devices.service';
 
 import { CreateTransferDto } from './dto/create-transfer.dto';
+
+const PER_TRANSFER_LIMIT = 10_000;
+const DAILY_TRANSFER_LIMIT = 25_000;
 
 @Injectable()
 export class TransactionsService {
@@ -22,7 +27,167 @@ export class TransactionsService {
     private readonly devicesService: DevicesService,
   ) {}
 
-  async transfer(userId: number, dto: CreateTransferDto, deviceId: string) {
+  private normalizeIdempotencyKey(idempotencyKey?: string) {
+    const normalized = idempotencyKey?.trim();
+    return normalized ? normalized : undefined;
+  }
+
+  private getTransferFingerprint(userId: number, dto: CreateTransferDto) {
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          userId,
+          senderAccountId: dto.senderAccountId,
+          beneficiaryId: dto.beneficiaryId,
+          amount: Number(dto.amount).toFixed(2),
+          description: dto.description?.trim() ?? null,
+        }),
+      )
+      .digest('hex');
+  }
+
+  private async findIdempotentTransfer(
+    userId: number,
+    idempotencyKey: string,
+    fingerprint: string,
+  ) {
+    const existing = await this.prisma.transaction.findUnique({
+      where: { idempotencyKey },
+      include: {
+        fraudAlert: true,
+        senderAccount: { select: { userId: true } },
+      },
+    });
+
+    if (!existing) return null;
+
+    if (existing.senderAccount?.userId !== userId) {
+      throw new ConflictException('Idempotency key is already in use');
+    }
+
+    if (existing.idempotencyFingerprint !== fingerprint) {
+      throw new ConflictException(
+        'Idempotency key was already used for a different transfer',
+      );
+    }
+
+    return {
+      message:
+        existing.status === 'REJECTED'
+          ? 'Transfer rejected because fraud detection service is unavailable'
+          : existing.status === 'FLAGGED'
+            ? 'Transaction flagged for security review'
+            : 'Transaction completed successfully',
+      transaction: existing,
+      ...(existing.fraudAlert ? { fraudAlert: existing.fraudAlert } : {}),
+      idempotentReplay: true,
+    };
+  }
+
+  private async enforceTransferLimits(senderAccountId: number, amount: number) {
+    if (amount > PER_TRANSFER_LIMIT) {
+      throw new BadRequestException(
+        `Transfer amount exceeds the per-transfer limit of ${PER_TRANSFER_LIMIT}`,
+      );
+    }
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const dailyTotal = await this.prisma.transaction.aggregate({
+      where: {
+        senderAccountId,
+        type: 'TRANSFER',
+        status: { in: ['COMPLETED', 'FLAGGED'] },
+        createdAt: { gte: startOfDay },
+      },
+      _sum: { amount: true },
+    });
+    const usedToday = Number(dailyTotal._sum.amount ?? 0);
+
+    if (usedToday + amount > DAILY_TRANSFER_LIMIT) {
+      throw new BadRequestException(
+        `Transfer would exceed the daily transfer limit of ${DAILY_TRANSFER_LIMIT}`,
+      );
+    }
+  }
+
+  private async recordFraudServiceFailure(data: {
+    userId: number;
+    senderAccountId: number;
+    receiverAccountId: number;
+    amount: number;
+    currency: string;
+    description?: string;
+    reference: string;
+    idempotencyKey?: string;
+    idempotencyFingerprint?: string;
+  }) {
+    await this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.create({
+        data: {
+          reference: data.reference,
+          idempotencyKey: data.idempotencyKey,
+          idempotencyFingerprint: data.idempotencyFingerprint,
+          amount: data.amount,
+          currency: data.currency,
+          description: data.description?.trim(),
+          type: 'TRANSFER',
+          status: 'REJECTED',
+          senderAccountId: data.senderAccountId,
+          receiverAccountId: data.receiverAccountId,
+        },
+      });
+
+      await tx.securityEvent.create({
+        data: {
+          userId: data.userId,
+          eventType: 'FRAUD_SERVICE_UNAVAILABLE',
+          description:
+            'Transfer was rejected because fraud detection service was unavailable',
+          riskLevel: 'HIGH',
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: data.userId,
+          action: 'TRANSFER_REJECTED_FRAUD_SERVICE_UNAVAILABLE',
+          resource: `Transaction:${transaction.id}`,
+          result: 'FAILURE',
+          details: JSON.stringify({
+            reference: data.reference,
+            amount: data.amount,
+            currency: data.currency,
+            senderAccountId: data.senderAccountId,
+            receiverAccountId: data.receiverAccountId,
+          }),
+        },
+      });
+    });
+  }
+
+  async transfer(
+    userId: number,
+    dto: CreateTransferDto,
+    deviceId: string,
+    idempotencyKey?: string,
+  ) {
+    const normalizedIdempotencyKey =
+      this.normalizeIdempotencyKey(idempotencyKey);
+    const idempotencyFingerprint = normalizedIdempotencyKey
+      ? this.getTransferFingerprint(userId, dto)
+      : undefined;
+
+    if (normalizedIdempotencyKey && idempotencyFingerprint) {
+      const existingTransfer = await this.findIdempotentTransfer(
+        userId,
+        normalizedIdempotencyKey,
+        idempotencyFingerprint,
+      );
+      if (existingTransfer) return existingTransfer;
+    }
+
     // ----------------------------------
     // 1. VERIFY SENDER ACCOUNT
     // ----------------------------------
@@ -93,6 +258,8 @@ export class TransactionsService {
       throw new BadRequestException('Insufficient balance');
     }
 
+    await this.enforceTransferLimits(senderAccount.id, dto.amount);
+
     // ----------------------------------
     // 7. CREATE TRANSACTION REFERENCE
     // ----------------------------------
@@ -139,21 +306,40 @@ export class TransactionsService {
     // 11. SEND DATA TO PYTHON
     // ----------------------------------
 
-    const fraudResult = await this.fraudService.analyzeTransaction({
-      transaction_id: reference,
+    let fraudResult: FraudAnalysisResponse;
+    try {
+      fraudResult = await this.fraudService.analyzeTransaction({
+        transaction_id: reference,
 
-      user_id: userId,
+        user_id: userId,
 
-      amount: dto.amount,
+        amount: dto.amount,
 
-      new_device: isNewDevice,
+        new_device: isNewDevice,
 
-      new_beneficiary: isNewBeneficiary,
+        new_beneficiary: isNewBeneficiary,
 
-      transactions_last_hour: transactionsLastHour,
+        transactions_last_hour: transactionsLastHour,
 
-      transaction_hour: new Date().getHours(),
-    });
+        transaction_hour: new Date().getHours(),
+      });
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) {
+        await this.recordFraudServiceFailure({
+          userId,
+          senderAccountId: senderAccount.id,
+          receiverAccountId: receiverAccount.id,
+          amount: dto.amount,
+          currency: senderAccount.currency,
+          description: dto.description,
+          reference,
+          idempotencyKey: normalizedIdempotencyKey,
+          idempotencyFingerprint,
+        });
+      }
+
+      throw error;
+    }
 
     // ==================================
     // HIGH / CRITICAL RISK
@@ -167,6 +353,8 @@ export class TransactionsService {
         const transaction = await tx.transaction.create({
           data: {
             reference,
+            idempotencyKey: normalizedIdempotencyKey,
+            idempotencyFingerprint,
 
             amount: dto.amount,
 
@@ -199,6 +387,23 @@ export class TransactionsService {
             riskLevel: fraudResult.risk_level,
 
             reason: fraudResult.reasons.join('; '),
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            userId,
+            action: 'TRANSFER_FLAGGED',
+            resource: `Transaction:${transaction.id}`,
+            result: 'SUCCESS',
+            details: JSON.stringify({
+              reference,
+              amount: dto.amount,
+              currency: senderAccount.currency,
+              fraudAlertId: fraudAlert.id,
+              riskScore: fraudResult.risk_score,
+              riskLevel: fraudResult.risk_level,
+            }),
           },
         });
 
@@ -268,6 +473,8 @@ export class TransactionsService {
       const transaction = await tx.transaction.create({
         data: {
           reference,
+          idempotencyKey: normalizedIdempotencyKey,
+          idempotencyFingerprint,
 
           amount: dto.amount,
 
@@ -286,6 +493,24 @@ export class TransactionsService {
           riskScore: fraudResult.risk_score,
 
           riskLevel: fraudResult.risk_level,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'TRANSFER_COMPLETED',
+          resource: `Transaction:${transaction.id}`,
+          result: 'SUCCESS',
+          details: JSON.stringify({
+            reference,
+            amount: dto.amount,
+            currency: senderAccount.currency,
+            senderAccountId: senderAccount.id,
+            receiverAccountId: receiverAccount.id,
+            riskScore: fraudResult.risk_score,
+            riskLevel: fraudResult.risk_level,
+          }),
         },
       });
 
@@ -332,6 +557,8 @@ export class TransactionsService {
 
         riskScore: true,
         riskLevel: true,
+        reversedAt: true,
+        reversalReason: true,
         createdAt: true,
       },
 
@@ -339,5 +566,122 @@ export class TransactionsService {
         createdAt: 'desc',
       },
     });
+  }
+
+  async reverse(userId: number, transactionId: number, reason: string) {
+    const normalizedReason = reason.trim();
+    const original = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+      include: {
+        senderAccount: { select: { id: true, userId: true } },
+        receiverAccount: { select: { id: true, balance: true } },
+      },
+    });
+
+    if (!original || original.senderAccount?.userId !== userId) {
+      throw new NotFoundException('Transaction not found');
+    }
+
+    if (original.type !== 'TRANSFER') {
+      throw new BadRequestException('Only transfers can be reversed');
+    }
+
+    if (original.status === 'REVERSED') {
+      throw new ConflictException('Transaction has already been reversed');
+    }
+
+    if (original.status !== 'COMPLETED') {
+      throw new BadRequestException('Only completed transfers can be reversed');
+    }
+
+    if (!original.senderAccountId || !original.receiverAccountId) {
+      throw new BadRequestException('Transaction accounts are incomplete');
+    }
+
+    const amount = Number(original.amount);
+    const senderAccountId = original.senderAccountId;
+    const receiverAccountId = original.receiverAccountId;
+
+    if (Number(original.receiverAccount?.balance ?? 0) < amount) {
+      throw new BadRequestException(
+        'Receiver account has insufficient balance for reversal',
+      );
+    }
+
+    const reversedTransaction = await this.prisma.$transaction(async (tx) => {
+      const receiverDebit = await tx.bankAccount.updateMany({
+        where: {
+          id: receiverAccountId,
+          balance: { gte: amount },
+        },
+        data: {
+          balance: { decrement: amount },
+        },
+      });
+
+      if (receiverDebit.count !== 1) {
+        throw new BadRequestException(
+          'Receiver account has insufficient balance for reversal',
+        );
+      }
+
+      await tx.bankAccount.update({
+        where: { id: senderAccountId },
+        data: {
+          balance: { increment: amount },
+        },
+      });
+
+      const updateResult = await tx.transaction.updateMany({
+        where: { id: transactionId, status: 'COMPLETED' },
+        data: {
+          status: 'REVERSED',
+          reversedAt: new Date(),
+          reversedById: userId,
+          reversalReason: normalizedReason,
+        },
+      });
+
+      if (updateResult.count !== 1) {
+        throw new ConflictException('Transaction could not be reversed');
+      }
+
+      const updated = await tx.transaction.findUnique({
+        where: { id: transactionId },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'TRANSFER_REVERSED',
+          resource: `Transaction:${transactionId}`,
+          result: 'SUCCESS',
+          details: JSON.stringify({
+            reference: original.reference,
+            amount,
+            currency: original.currency,
+            senderAccountId,
+            receiverAccountId,
+            reason: normalizedReason,
+          }),
+        },
+      });
+
+      await tx.securityEvent.create({
+        data: {
+          userId,
+          eventType: 'TRANSFER_REVERSED',
+          description: `Transfer ${original.reference} was reversed`,
+          riskLevel: 'MEDIUM',
+        },
+      });
+
+      return updated;
+    });
+
+    return {
+      message: 'Transaction reversed successfully',
+      transaction: reversedTransaction,
+    };
   }
 }

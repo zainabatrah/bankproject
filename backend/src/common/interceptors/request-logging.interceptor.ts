@@ -23,7 +23,14 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap(() => {
         this.logger.log(
-          `${request.method} ${request.originalUrl ?? request.url} ${response.statusCode} ${Date.now() - startedAt}ms [${requestId}]`,
+          JSON.stringify({
+            event: 'http_request_completed',
+            requestId,
+            method: request.method,
+            path: request.originalUrl ?? request.url,
+            statusCode: response.statusCode,
+            durationMs: Date.now() - startedAt,
+          }),
         );
       }),
     );

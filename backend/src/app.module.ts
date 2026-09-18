@@ -21,6 +21,7 @@ import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { SocModule } from './soc/soc.module';
 import { SecurityEventsModule } from './security-events/security-events.module';
 import { validateConfiguration } from './config/configuration';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { validateConfiguration } from './config/configuration';
 
     // Database
     PrismaModule,
+    HealthModule,
 
     // Application modules
     UsersModule,
