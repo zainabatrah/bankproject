@@ -132,7 +132,7 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-ml_model = joblib.load("models/logistic_regression.joblib")
+ml_model = joblib.load("models/random_forest.joblib")
 
 # This opens a database connection for a request and closes it afterward.
 def get_database():
