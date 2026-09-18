@@ -478,7 +478,8 @@ describe('BankShield security flows (e2e)', () => {
       .send({ ...transferPayload, amount: 10_001 })
       .expect(400)
       .expect((response) => {
-        expect(String(response.body.message)).toContain('per-transfer limit');
+        const body = bodyOf<ErrorResponseBody>(response);
+        expect(String(body.message)).toContain('per-transfer limit');
       });
 
     jest.spyOn(fraudService, 'analyzeTransaction').mockResolvedValueOnce({
@@ -826,12 +827,10 @@ describe('BankShield security flows (e2e)', () => {
       .expect(200)
       .expect((response) => {
         const body = bodyOf<Record<string, number>>(response);
-        expect(body).toMatchObject({
-          OPEN: expect.any(Number),
-          INVESTIGATING: expect.any(Number),
-          RESOLVED: expect.any(Number),
-          FALSE_POSITIVE: expect.any(Number),
-        });
+        expect(typeof body.OPEN).toBe('number');
+        expect(typeof body.INVESTIGATING).toBe('number');
+        expect(typeof body.RESOLVED).toBe('number');
+        expect(typeof body.FALSE_POSITIVE).toBe('number');
       });
     await request(app.getHttpServer())
       .get('/soc/analytics/security-events-by-type')

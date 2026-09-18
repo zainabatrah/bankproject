@@ -1,7 +1,10 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountsService } from './accounts.service';
+
+const matching = <T>(value: T): T => value;
 
 describe('AccountsService', () => {
   let prisma: {
@@ -37,18 +40,22 @@ describe('AccountsService', () => {
 
     expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 7 } });
     expect(prisma.bankAccount.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        accountNumber: expect.stringMatching(/^BS\d{10}$/),
-        currency: 'USD',
-        balance: 0,
-        userId: 7,
-      }),
-      select: expect.objectContaining({
-        id: true,
-        accountNumber: true,
-        balance: true,
-        currency: true,
-      }),
+      data: matching(
+        expect.objectContaining({
+          accountNumber: expect.stringMatching(/^BS\d{10}$/),
+          currency: 'USD',
+          balance: 0,
+          userId: 7,
+        }),
+      ),
+      select: matching(
+        expect.objectContaining({
+          id: true,
+          accountNumber: true,
+          balance: true,
+          currency: true,
+        }),
+      ),
     });
     expect(result).toMatchObject({ id: 11, currency: 'USD' });
   });
@@ -63,7 +70,7 @@ describe('AccountsService', () => {
     expect(prisma.bankAccount.findUnique).toHaveBeenCalledTimes(2);
     expect(prisma.bankAccount.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ currency: 'EUR' }),
+        data: matching(expect.objectContaining({ currency: 'EUR' })),
       }),
     );
   });

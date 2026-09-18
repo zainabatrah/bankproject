@@ -23,12 +23,12 @@ describe('BeneficiariesController', () => {
     );
   });
 
-  it('creates, lists, and removes beneficiaries for the authenticated subject', () => {
+  it('creates, lists, and removes beneficiaries for the authenticated subject', async () => {
     const dto = { name: 'Receiver', accountNumber: 'BS200' };
 
-    controller.create(request as never, dto);
-    controller.findMine(request as never);
-    controller.remove(request as never, 30);
+    await controller.create(request as never, dto);
+    await controller.findMine(request as never);
+    await controller.remove(request as never, 30);
 
     expect(beneficiariesService.create).toHaveBeenCalledWith(7, dto);
     expect(beneficiariesService.findMine).toHaveBeenCalledWith(7);

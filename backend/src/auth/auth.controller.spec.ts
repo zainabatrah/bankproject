@@ -62,7 +62,7 @@ describe('AuthController', () => {
     );
   });
 
-  it('requires X-Device-ID and forwards login metadata', () => {
+  it('requires X-Device-ID and forwards login metadata', async () => {
     expect(() =>
       controller.login(
         { email: 'user@example.com', password: 'password-123' },
@@ -71,7 +71,7 @@ describe('AuthController', () => {
       ),
     ).toThrow(BadRequestException);
 
-    controller.login(
+    await controller.login(
       { email: 'user@example.com', password: 'password-123' },
       request as never,
       'device-1',
@@ -86,17 +86,20 @@ describe('AuthController', () => {
     );
   });
 
-  it('delegates registration, refresh, logout, and password recovery calls', () => {
-    controller.register({
+  it('delegates registration, refresh, logout, and password recovery calls', async () => {
+    await controller.register({
       email: 'new@example.com',
       firstName: 'New',
       lastName: 'User',
       password: 'password-123',
     });
-    controller.refresh({ refreshToken: 'refresh-token' });
-    controller.logout({ refreshToken: 'refresh-token' });
-    controller.forgotPassword({ email: 'user@example.com' });
-    controller.resetPassword({ token: 'reset-token', newPassword: 'new-pass' });
+    await controller.refresh({ refreshToken: 'refresh-token' });
+    await controller.logout({ refreshToken: 'refresh-token' });
+    await controller.forgotPassword({ email: 'user@example.com' });
+    await controller.resetPassword({
+      token: 'reset-token',
+      newPassword: 'new-pass',
+    });
 
     expect(authService.register).toHaveBeenCalledWith(
       expect.objectContaining({ email: 'new@example.com' }),
@@ -112,14 +115,14 @@ describe('AuthController', () => {
 
   it('uses the authenticated subject for profile, password, and sessions', async () => {
     await controller.me(request as never);
-    controller.changePassword(request as never, {
+    await controller.changePassword(request as never, {
       currentPassword: 'old-pass',
       newPassword: 'new-pass',
     });
-    controller.getSessions(request as never);
-    controller.revokeSession(request as never, 42);
-    controller.logoutAllSessions(request as never);
-    controller.revokeAllSessions(request as never);
+    await controller.getSessions(request as never);
+    await controller.revokeSession(request as never, 42);
+    await controller.logoutAllSessions(request as never);
+    await controller.revokeAllSessions(request as never);
 
     expect(usersService.findById).toHaveBeenCalledWith(7);
     expect(authService.changePassword).toHaveBeenCalledWith(
@@ -133,22 +136,22 @@ describe('AuthController', () => {
     expect(authService.revokeAllSessions).toHaveBeenCalledWith(7);
   });
 
-  it('routes MFA login and account MFA management correctly', () => {
-    controller.verifyMfaLogin(
+  it('routes MFA login and account MFA management correctly', async () => {
+    await controller.verifyMfaLogin(
       { mfaToken: 'mfa-token', code: '123456' },
       request as never,
     );
-    controller.recoveryLogin(
+    await controller.recoveryLogin(
       { mfaToken: 'mfa-token', recoveryCode: 'AAAA-BBBB' },
       request as never,
     );
-    controller.setupMfa(request as never);
-    controller.verifyMfaSetup(request as never, { code: '123456' });
-    controller.regenerateRecoveryCodes(request as never, {
+    await controller.setupMfa(request as never);
+    await controller.verifyMfaSetup(request as never, { code: '123456' });
+    await controller.regenerateRecoveryCodes(request as never, {
       currentPassword: 'password-123',
       code: '123456',
     });
-    controller.disableMfa(request as never, {
+    await controller.disableMfa(request as never, {
       currentPassword: 'password-123',
       code: '123456',
     });

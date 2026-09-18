@@ -7,6 +7,8 @@ import {
 
 import { HttpExceptionFilter } from './http-exception.filter';
 
+type JsonMock = jest.Mock<void, [unknown]>;
+
 function makeHost(exceptionResponse: {
   requestId?: string;
   method?: string;
@@ -82,7 +84,8 @@ describe('HttpExceptionFilter', () => {
         message: 'Internal server error',
       }),
     );
-    expect(JSON.stringify(response.json.mock.calls[0][0])).not.toContain(
+    const jsonMock = response.json as JsonMock;
+    expect(JSON.stringify(jsonMock.mock.calls[0][0])).not.toContain(
       'database password leaked',
     );
   });

@@ -21,14 +21,14 @@ describe('AccountsController', () => {
     );
   });
 
-  it('creates accounts for the authenticated subject', () => {
-    controller.createAccount(request as never, { currency: 'USD' });
+  it('creates accounts for the authenticated subject', async () => {
+    await controller.createAccount(request as never, { currency: 'USD' });
 
     expect(accountsService.createAccount).toHaveBeenCalledWith(7, 'USD');
   });
 
-  it('lists only the authenticated subject accounts', () => {
-    controller.getMyAccounts(request as never);
+  it('lists only the authenticated subject accounts', async () => {
+    await controller.getMyAccounts(request as never);
 
     expect(accountsService.getMyAccounts).toHaveBeenCalledWith(7);
   });

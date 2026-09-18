@@ -37,8 +37,8 @@ describe('TransactionsController', () => {
     expect(transactionsService.transfer).not.toHaveBeenCalled();
   });
 
-  it('passes transfer idempotency keys through to the service', () => {
-    controller.transfer(
+  it('passes transfer idempotency keys through to the service', async () => {
+    await controller.transfer(
       request as never,
       transferDto,
       'device-1',
@@ -65,9 +65,11 @@ describe('TransactionsController', () => {
     expect(transactionsService.transfer).not.toHaveBeenCalled();
   });
 
-  it('routes transaction history and reversal requests by authenticated subject', () => {
-    controller.getMyTransactions(request as never);
-    controller.reverse(request as never, 99, { reason: 'Customer dispute' });
+  it('routes transaction history and reversal requests by authenticated subject', async () => {
+    await controller.getMyTransactions(request as never);
+    await controller.reverse(request as never, 99, {
+      reason: 'Customer dispute',
+    });
 
     expect(transactionsService.getMyTransactions).toHaveBeenCalledWith(7);
     expect(transactionsService.reverse).toHaveBeenCalledWith(

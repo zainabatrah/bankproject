@@ -1,9 +1,12 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { FraudAlertsService } from '../fraud-alerts/fraud-alerts.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SocService } from './soc.service';
+
+const matching = <T>(value: T): T => value;
 
 describe('SocService fraud investigation workflow', () => {
   const alert = {
@@ -120,11 +123,13 @@ describe('SocService fraud investigation workflow', () => {
     );
     expect(prisma.investigationCase.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          alertId: 12,
-          assignedAnalyst: 'Analyst One',
-          summary: 'Review transfer',
-        }),
+        data: matching(
+          expect.objectContaining({
+            alertId: 12,
+            assignedAnalyst: 'Analyst One',
+            summary: 'Review transfer',
+          }),
+        ),
       }),
     );
     expect(auditLogsService.create).toHaveBeenCalledWith(
@@ -165,11 +170,13 @@ describe('SocService fraud investigation workflow', () => {
     expect(prisma.investigationCase.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 55 },
-        data: expect.objectContaining({
-          status: 'RESOLVED',
-          outcome: 'RESOLVED',
-          updatedById: 7,
-        }),
+        data: matching(
+          expect.objectContaining({
+            status: 'RESOLVED',
+            outcome: 'RESOLVED',
+            updatedById: 7,
+          }),
+        ),
       }),
     );
     expect(auditLogsService.create).toHaveBeenCalledWith(

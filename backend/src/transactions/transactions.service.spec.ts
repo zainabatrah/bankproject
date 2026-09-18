@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
 import {
   BadRequestException,
   ConflictException,
@@ -8,6 +9,8 @@ import { DevicesService } from '../devices/devices.service';
 import { FraudService } from '../fraud/fraud.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TransactionsService } from './transactions.service';
+
+const matching = <T>(value: T): T => value;
 
 describe('TransactionsService', () => {
   const senderAccount = {
@@ -127,7 +130,11 @@ describe('TransactionsService', () => {
   it('replays an existing transfer for the same idempotency key and payload', async () => {
     const dto = { senderAccountId: 10, beneficiaryId: 30, amount: 125 };
     await service.transfer(7, dto, 'device-1', 'transfer-key-1');
-    const created = prisma.transaction.create.mock.calls[0][0].data;
+    const created = (
+      prisma.transaction.create.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      }
+    ).data;
     prisma.transaction.findUnique.mockResolvedValueOnce({
       id: 99,
       ...created,
@@ -208,17 +215,21 @@ describe('TransactionsService', () => {
 
     expect(prisma.transaction.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          idempotencyKey: 'fraud-down-key',
-          status: 'REJECTED',
-        }),
+        data: matching(
+          expect.objectContaining({
+            idempotencyKey: 'fraud-down-key',
+            status: 'REJECTED',
+          }),
+        ),
       }),
     );
     expect(prisma.securityEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          eventType: 'FRAUD_SERVICE_UNAVAILABLE',
-        }),
+        data: matching(
+          expect.objectContaining({
+            eventType: 'FRAUD_SERVICE_UNAVAILABLE',
+          }),
+        ),
       }),
     );
     expect(prisma.bankAccount.updateMany).not.toHaveBeenCalled();
@@ -252,10 +263,12 @@ describe('TransactionsService', () => {
       reason: 'Unusual amount; New device',
     });
     expect(prisma.fraudAlert.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        riskScore: 92,
-        riskLevel: 'CRITICAL',
-      }),
+      data: matching(
+        expect.objectContaining({
+          riskScore: 92,
+          riskLevel: 'CRITICAL',
+        }),
+      ),
     });
     expect(prisma.bankAccount.updateMany).not.toHaveBeenCalled();
     expect(prisma.bankAccount.update).not.toHaveBeenCalled();
@@ -299,7 +312,7 @@ describe('TransactionsService', () => {
     expect(prisma.transaction.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 99, status: 'COMPLETED' },
-        data: expect.objectContaining({ status: 'REVERSED' }),
+        data: matching(expect.objectContaining({ status: 'REVERSED' })),
       }),
     );
   });
