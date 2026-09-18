@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Req,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
@@ -38,6 +39,16 @@ export class SocController {
   @Get('alerts')
   alerts() {
     return this.socService.getAlerts();
+  }
+
+  @Get('notifications')
+  notifications(@Query('unread_only') unreadOnly?: string) {
+    return this.socService.getNotifications(unreadOnly === 'true');
+  }
+
+  @Patch('notifications/:id/read')
+  markNotificationRead(@Param('id', ParseIntPipe) id: number) {
+    return this.socService.markNotificationRead(id);
   }
 
   @Get('analytics/risk-distribution')

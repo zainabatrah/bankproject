@@ -1,4 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+import { of } from 'rxjs';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -57,6 +60,14 @@ describe('SocService fraud investigation workflow', () => {
   };
   let auditLogsService: { create: jest.Mock };
   let fraudAlertsService: { updateStatus: jest.Mock };
+  let httpService: {
+    get: jest.Mock;
+    patch: jest.Mock;
+  };
+
+  let configService: {
+    getOrThrow: jest.Mock;
+  };
   let service: SocService;
 
   beforeEach(() => {
@@ -85,10 +96,20 @@ describe('SocService fraud investigation workflow', () => {
     };
     auditLogsService = { create: jest.fn().mockResolvedValue({}) };
     fraudAlertsService = { updateStatus: jest.fn().mockResolvedValue({}) };
+    httpService = {
+      get: jest.fn(),
+      patch: jest.fn(),
+    };
+
+    configService = {
+      getOrThrow: jest.fn().mockReturnValue('http://127.0.0.1:8000'),
+    };
     service = new SocService(
       prisma as unknown as PrismaService,
       auditLogsService as unknown as AuditLogsService,
       fraudAlertsService as unknown as FraudAlertsService,
+      httpService as unknown as HttpService,
+      configService as unknown as ConfigService,
     );
   });
 
@@ -185,5 +206,56 @@ describe('SocService fraud investigation workflow', () => {
       }),
     );
     expect(result.case).toMatchObject({ status: 'RESOLVED' });
+  });
+
+  it('gets unread notifications from the fraud service', async () => {
+    const notifications = [
+      {
+        id: 1,
+        title: 'Critical Fraud Alert',
+        is_read: false,
+      },
+    ];
+
+    httpService.get.mockReturnValue(
+      of({
+        data: notifications,
+      }),
+    );
+
+    const result = await service.getNotifications(true);
+
+    expect(httpService.get).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/notifications',
+      {
+        params: {
+          unread_only: true,
+        },
+      },
+    );
+
+    expect(result).toEqual(notifications);
+  });
+
+  it('marks a notification as read', async () => {
+    const notification = {
+      id: 1,
+      title: 'Critical Fraud Alert',
+      is_read: true,
+    };
+
+    httpService.patch.mockReturnValue(
+      of({
+        data: notification,
+      }),
+    );
+
+    const result = await service.markNotificationRead(1);
+
+    expect(httpService.patch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/notifications/1/read',
+    );
+
+    expect(result).toEqual(notification);
   });
 });
