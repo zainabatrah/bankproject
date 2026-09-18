@@ -115,6 +115,18 @@ async function downloadSocFile(path, filename) {
 export const socApi = {
   getSummary: () => socRequest("/summary"),
   getAlerts: () => socRequest("/alerts"),
+  getNotifications: (unreadOnly = false) =>
+    socRequest(
+      `/notifications?unread_only=${unreadOnly}`
+    ),
+
+  markNotificationRead: (id) =>
+    socRequest(
+      `/notifications/${id}/read`,
+      {
+        method: "PATCH",
+      }
+    ),
   getRiskDistribution: () => socRequest("/analytics/risk-distribution"),
   getAlertsPerDay: () => socRequest("/analytics/alerts-per-day"),
   getCasesByStatus: () => socRequest("/analytics/cases-by-status"),
