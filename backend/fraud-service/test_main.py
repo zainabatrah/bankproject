@@ -235,3 +235,50 @@ def test_security_headers():
     assert response.headers[
         "Permissions-Policy"
     ] == "camera=(), microphone=(), geolocation=()"
+
+def test_critical_alert_notification_flow():
+    evaluation_response = client.post(
+        "/evaluate",
+        json={
+            "amount": 7500,
+            "average_amount": 250,
+            "new_device": True,
+            "new_beneficiary": True,
+            "transactions_last_hour": 8,
+            "failed_logins_last_hour": 4,
+            "transaction_hour": 2,
+        },
+    )
+
+    assert evaluation_response.status_code == 200
+
+    alert_id = evaluation_response.json()["alert_id"]
+
+    notifications_response = client.get(
+        "/notifications",
+        params={
+            "unread_only": True,
+        },
+    )
+
+    assert notifications_response.status_code == 200
+
+    notifications = notifications_response.json()
+
+    notification = next(
+        item
+        for item in notifications
+        if item["alert_id"] == alert_id
+    )
+
+    assert notification["title"] == (
+        "Critical Fraud Alert"
+    )
+    assert notification["is_read"] is False
+
+    read_response = client.patch(
+        f"/notifications/{notification['id']}/read"
+    )
+
+    assert read_response.status_code == 200
+    assert read_response.json()["is_read"] is True

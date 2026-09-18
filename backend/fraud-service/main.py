@@ -30,7 +30,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from database import SessionLocal
-from db_models import AuditLog, FraudAlert, InvestigationCase, SecurityEvent
+from db_models import (
+    AlertNotification,
+    AuditLog,
+    FraudAlert,
+    InvestigationCase,
+    SecurityEvent,
+)
 
 import joblib
 import pandas as pd
@@ -414,6 +420,20 @@ def evaluate_transaction(
         database.refresh(alert)
 
         alert_id = alert.id
+
+        if rule_result["severity"] == "CRITICAL":
+            notification = AlertNotification(
+                alert_id=alert.id,
+                title="Critical Fraud Alert",
+                message=(
+                    f"Alert #{alert.id}: a critical transaction "
+                    f"of ${transaction.amount:,.2f} was detected."
+                ),
+                is_read=False,
+            )
+
+            database.add(notification)
+            database.commit()
 
     logged_events = []
     #Log a new-device event
@@ -1307,3 +1327,63 @@ def download_security_pdf(
                 "attachment; filename=security_report.pdf"
         }
     )
+
+
+@app.get("/notifications")
+def get_notifications(
+    unread_only: bool = False,
+    database: Session = Depends(get_database),
+):
+    query = database.query(AlertNotification)
+
+    if unread_only:
+        query = query.filter(
+            AlertNotification.is_read.is_(False)
+        )
+
+    notifications = query.order_by(
+        AlertNotification.created_at.desc()
+    ).all()
+
+    return [
+        {
+            "id": notification.id,
+            "alert_id": notification.alert_id,
+            "title": notification.title,
+            "message": notification.message,
+            "is_read": notification.is_read,
+            "created_at": notification.created_at,
+        }
+        for notification in notifications
+    ]
+
+
+@app.patch("/notifications/{notification_id}/read")
+def mark_notification_as_read(
+    notification_id: int,
+    database: Session = Depends(get_database),
+):
+    notification = database.query(
+        AlertNotification
+    ).filter(
+        AlertNotification.id == notification_id
+    ).first()
+
+    if notification is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Notification not found",
+        )
+
+    notification.is_read = True
+    database.commit()
+    database.refresh(notification)
+
+    return {
+        "id": notification.id,
+        "alert_id": notification.alert_id,
+        "title": notification.title,
+        "message": notification.message,
+        "is_read": notification.is_read,
+        "created_at": notification.created_at,
+    }

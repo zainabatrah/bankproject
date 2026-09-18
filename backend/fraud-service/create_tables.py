@@ -1,5 +1,6 @@
 from database import Base, engine
 from db_models import (
+    AlertNotification,
     AuditLog,
     FraudAlert,
     InvestigationCase,
