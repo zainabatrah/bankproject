@@ -177,9 +177,27 @@ async function downloadSocFile(path, filename) {
 export const socApi = {
   getSummary: () => socRequest("/summary"),
   getAlerts: async () => {
-    const alerts = await backendRequest("/fraud-alerts?limit=100");
-    return Array.isArray(alerts) ? alerts.map(mapAlert) : [];
+    const alerts = await backendRequest(
+      "/fraud-alerts?limit=100"
+    );
+
+    return Array.isArray(alerts)
+      ? alerts.map(mapAlert)
+      : [];
   },
+
+  getNotifications: (unreadOnly = false) =>
+    socRequest(
+      `/notifications?unread_only=${unreadOnly}`
+    ),
+
+  markNotificationRead: (id) =>
+    socRequest(
+      `/notifications/${id}/read`,
+      {
+        method: "PATCH",
+      }
+    ),
   getRiskDistribution: () => socRequest("/analytics/risk-distribution"),
   getAlertsPerDay: () => socRequest("/analytics/alerts-per-day"),
   getCasesByStatus: () => socRequest("/analytics/cases-by-status"),

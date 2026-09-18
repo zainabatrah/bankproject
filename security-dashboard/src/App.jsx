@@ -4,6 +4,7 @@ import InvestigationsPage from "./pages/InvestigationsPage";
 import SecurityEventsPage from "./pages/SecurityEventsPage";
 import AuditLogsPage from "./pages/AuditLogsPage";
 import ReportsPage from "./pages/ReportsPage";
+import NotificationsPage from "./pages/NotificationsPage";
 import {
   Bar,
   BarChart,
@@ -47,6 +48,9 @@ function App() {
 
   const showingReportsPage =
     location.pathname === "/reports";
+
+  const showingNotificationsPage =
+    location.pathname === "/notifications";
 
   const [summary, setSummary] = useState(null);
   const [alerts, setAlerts] = useState([]);
@@ -197,7 +201,16 @@ function App() {
           >
             Reports
           </button>
-        </nav>
+
+         <button
+          className={`nav-item ${
+            showingNotificationsPage ? "active" : ""
+          }`}
+          onClick={() => navigate("/notifications")}
+          >
+          Notifications
+        </button>
+        </nav>        
       </aside>
       {showingAlertsPage ? (
         <FraudAlertsPage />
@@ -207,9 +220,11 @@ function App() {
         <SecurityEventsPage />
       ) : showingAuditLogsPage ? (
         <AuditLogsPage />
-      ) : showingReportsPage ? (
-        <ReportsPage />
-      ) : (
+     ) : showingReportsPage ? (
+  <ReportsPage />
+) : showingNotificationsPage ? (
+  <NotificationsPage />
+) : (
 
         <main className="main-content">
           <header className="dashboard-header">

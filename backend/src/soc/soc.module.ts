@@ -1,3 +1,4 @@
+import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
@@ -7,7 +8,7 @@ import { SocController } from './soc.controller';
 import { SocService } from './soc.service';
 
 @Module({
-  imports: [AuthModule, AuditLogsModule, FraudAlertsModule],
+  imports: [HttpModule, AuthModule, AuditLogsModule, FraudAlertsModule],
   controllers: [SocController],
   providers: [SocService],
 })

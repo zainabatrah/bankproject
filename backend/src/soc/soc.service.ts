@@ -1,8 +1,15 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
+
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
+import { AxiosError } from 'axios';
+import { firstValueFrom } from 'rxjs';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -40,14 +47,29 @@ type RawInvestigationCase = {
   updatedAt: Date;
   alert: RawAlert;
 };
+type AlertNotification = {
+  id: number;
+  alert_id: number;
+  title: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+};
 
 @Injectable()
 export class SocService {
+  private readonly logger = new Logger(SocService.name);
+  private readonly fraudEngineUrl: string;
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
     private readonly fraudAlertsService: FraudAlertsService,
-  ) {}
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+  ) {
+    this.fraudEngineUrl =
+      this.configService.getOrThrow<string>('FRAUD_ENGINE_URL');
+  }
 
   private async getRawAlerts(): Promise<RawAlert[]> {
     const alerts = await this.prisma.fraudAlert.findMany({
@@ -96,6 +118,51 @@ export class SocService {
       created_at: investigationCase.createdAt.toISOString(),
       updated_at: investigationCase.updatedAt.toISOString(),
     };
+  }
+
+  async getNotifications(unreadOnly = false) {
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get<AlertNotification[]>(
+          `${this.fraudEngineUrl}/notifications`,
+          {
+            params: {
+              unread_only: unreadOnly,
+            },
+          },
+        ),
+      );
+
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+
+      this.logger.error(`Notification request failed: ${axiosError.message}`);
+
+      throw new ServiceUnavailableException(
+        'Notification service is unavailable',
+      );
+    }
+  }
+
+  async markNotificationRead(notificationId: number) {
+    try {
+      const response = await firstValueFrom(
+        this.httpService.patch<AlertNotification>(
+          `${this.fraudEngineUrl}/notifications/${notificationId}/read`,
+        ),
+      );
+
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+
+      this.logger.error(`Notification update failed: ${axiosError.message}`);
+
+      throw new ServiceUnavailableException(
+        'Notification service is unavailable',
+      );
+    }
   }
 
   async getSummary() {
