@@ -1,20 +1,35 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { AccountsController } from './accounts.controller';
+import { AccountsService } from './accounts.service';
 
 describe('AccountsController', () => {
+  const request = {
+    user: { sub: 7, email: 'user@example.com', role: 'CUSTOMER' },
+  };
+  let accountsService: {
+    createAccount: jest.Mock;
+    getMyAccounts: jest.Mock;
+  };
   let controller: AccountsController;
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      controllers: [AccountsController],
-    })
-      .useMocker(() => ({}))
-      .compile();
-
-    controller = module.get<AccountsController>(AccountsController);
+  beforeEach(() => {
+    accountsService = {
+      createAccount: jest.fn(),
+      getMyAccounts: jest.fn(),
+    };
+    controller = new AccountsController(
+      accountsService as unknown as AccountsService,
+    );
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
+  it('creates accounts for the authenticated subject', () => {
+    controller.createAccount(request as never, { currency: 'USD' });
+
+    expect(accountsService.createAccount).toHaveBeenCalledWith(7, 'USD');
+  });
+
+  it('lists only the authenticated subject accounts', () => {
+    controller.getMyAccounts(request as never);
+
+    expect(accountsService.getMyAccounts).toHaveBeenCalledWith(7);
   });
 });

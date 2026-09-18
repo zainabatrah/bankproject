@@ -22,7 +22,7 @@ type AuthenticatedRequest = Request & { user: { sub: number } };
 
 @Controller('security-events')
 @UseGuards(AuthGuard, RolesGuard)
-@Roles('FRAUD_ANALYST', 'SECURITY_ANALYST', 'ADMIN')
+@Roles('SECURITY_ANALYST', 'ADMIN')
 export class SecurityEventsController {
   constructor(private readonly securityEventsService: SecurityEventsService) {}
 

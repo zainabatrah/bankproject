@@ -1,7 +1,12 @@
 const AUTH_SESSION_STORAGE_KEY = "bankshield.auth.session.v1";
 
 export const SOC_API_URL = (
-  import.meta.env.VITE_SOC_API_URL?.trim() || "http://localhost:3000/soc"
+  import.meta.env.VITE_SOC_API_URL?.trim() ||
+  `${import.meta.env.VITE_API_URL?.trim() || "http://localhost:3000"}/soc`
+).replace(/\/+$/, "");
+
+export const API_URL = (
+  import.meta.env.VITE_API_URL?.trim() || SOC_API_URL.replace(/\/soc$/, "")
 ).replace(/\/+$/, "");
 
 function getAccessToken() {
@@ -58,6 +63,14 @@ async function parseResponse(response) {
 }
 
 export async function socRequest(path, options = {}) {
+  return apiRequest(`${SOC_API_URL}${path}`, options);
+}
+
+export async function backendRequest(path, options = {}) {
+  return apiRequest(`${API_URL}${path}`, options);
+}
+
+async function apiRequest(url, options = {}) {
   const { body, headers = {}, ...requestOptions } = options;
   const requestHeaders = new Headers(headers);
   requestHeaders.set("Accept", "application/json");
@@ -71,7 +84,7 @@ export async function socRequest(path, options = {}) {
     requestHeaders.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  const response = await fetch(`${SOC_API_URL}${path}`, {
+  const response = await fetch(url, {
     ...requestOptions,
     headers: requestHeaders,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -85,6 +98,55 @@ export async function socRequest(path, options = {}) {
   }
 
   return payload;
+}
+
+function mapAlert(alert) {
+  const transaction = alert.transaction ?? {};
+
+  return {
+    id: alert.id,
+    amount: alert.amount ?? transaction.amount ?? 0,
+    currency: alert.currency ?? transaction.currency ?? "USD",
+    risk_score: alert.risk_score ?? alert.riskScore ?? 0,
+    severity: alert.severity ?? alert.riskLevel ?? "LOW",
+    reason: alert.reason ?? "",
+    decision: alert.decision ?? transaction.status ?? "FLAGGED",
+    status: alert.status ?? "OPEN",
+    transaction_id: alert.transaction_id ?? alert.transactionId,
+    reference: alert.reference ?? transaction.reference ?? "",
+    created_at: alert.created_at ?? alert.createdAt,
+    updated_at: alert.updated_at ?? alert.updatedAt,
+  };
+}
+
+function mapSecurityEvent(event) {
+  return {
+    id: event.id,
+    event_type: event.event_type ?? event.eventType ?? "SECURITY_EVENT",
+    severity: event.severity ?? event.risk_level ?? event.riskLevel ?? "LOW",
+    description: event.description ?? "",
+    created_at: event.created_at ?? event.createdAt,
+  };
+}
+
+function mapAuditLog(log) {
+  const [entityType, ...entityParts] = (log.resource ?? "").split(":");
+  const user = log.user;
+
+  return {
+    id: log.id,
+    action: log.action,
+    entity_type: log.entity_type ?? entityType ?? "SYSTEM",
+    entity_id: log.entity_id ?? (entityParts.join(":") || null),
+    actor:
+      log.actor ??
+      (user
+        ? `${user.firstName ?? ""} ${user.lastName ?? ""} (${user.email ?? "unknown"})`.trim()
+        : "System"),
+    result: log.result,
+    details: log.details,
+    created_at: log.created_at ?? log.createdAt,
+  };
 }
 
 async function downloadSocFile(path, filename) {
@@ -114,17 +176,29 @@ async function downloadSocFile(path, filename) {
 
 export const socApi = {
   getSummary: () => socRequest("/summary"),
-  getAlerts: () => socRequest("/alerts"),
+  getAlerts: async () => {
+    const alerts = await backendRequest("/fraud-alerts?limit=100");
+    return Array.isArray(alerts) ? alerts.map(mapAlert) : [];
+  },
   getRiskDistribution: () => socRequest("/analytics/risk-distribution"),
   getAlertsPerDay: () => socRequest("/analytics/alerts-per-day"),
   getCasesByStatus: () => socRequest("/analytics/cases-by-status"),
   getSecurityEventsByType: () =>
     socRequest("/analytics/security-events-by-type"),
-  getSecurityEvents: () => socRequest("/security-events"),
-  getAuditLogs: () => socRequest("/audit-logs"),
+  getSecurityEvents: async () => {
+    const events = await backendRequest("/security-events?limit=100");
+    return Array.isArray(events) ? events.map(mapSecurityEvent) : [];
+  },
+  getAuditLogs: async () => {
+    const logs = await backendRequest("/audit-logs?limit=100");
+    return Array.isArray(logs) ? logs.map(mapAuditLog) : [];
+  },
   getCases: () => socRequest("/cases"),
   updateAlertStatus: (id, status) =>
-    socRequest(`/alerts/${id}/status`, { method: "PATCH", body: { status } }),
+    backendRequest(`/fraud-alerts/${id}/status`, {
+      method: "PATCH",
+      body: { status },
+    }),
   addNote: (id, note) =>
     socRequest(`/alerts/${id}/notes`, { method: "POST", body: { note } }),
   createCase: (payload) =>
@@ -134,7 +208,10 @@ export const socApi = {
   downloadAlertsCsv: () =>
     downloadSocFile("/reports/alerts.csv", "bankshield-alerts.csv"),
   downloadSecurityReport: () =>
-    downloadSocFile("/reports/security-report.json", "bankshield-security-report.json"),
+    downloadSocFile(
+      "/reports/security-report.json",
+      "bankshield-security-report.json",
+    ),
 };
 
 export default socApi;

@@ -115,6 +115,16 @@ export class AuthService {
     });
     const refreshToken = await this.createRefreshToken(user.id, deviceId);
 
+    await this.prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'LOGIN_SUCCESS',
+        resource: 'AUTH',
+        result: 'SUCCESS',
+        details: JSON.stringify({ deviceId }),
+      },
+    });
+
     return {
       accessToken,
       refreshToken,
@@ -186,6 +196,19 @@ export class AuthService {
           ...(ipAddress ? { ipAddress } : {}),
         },
       });
+      await this.prisma.auditLog.create({
+        data: {
+          action: 'LOGIN_FAILED',
+          resource: 'AUTH',
+          result: 'FAILURE',
+          details: JSON.stringify({
+            email,
+            deviceId,
+            reason: 'UNKNOWN_USER',
+            ...(ipAddress ? { ipAddress } : {}),
+          }),
+        },
+      });
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -209,6 +232,19 @@ export class AuthService {
           deviceInfo: deviceId,
           ...(ipAddress ? { ipAddress } : {}),
           userId: user.id,
+        },
+      });
+      await this.prisma.auditLog.create({
+        data: {
+          userId: user.id,
+          action: 'LOGIN_FAILED',
+          resource: 'AUTH',
+          result: 'FAILURE',
+          details: JSON.stringify({
+            deviceId,
+            reason: 'INVALID_PASSWORD',
+            ...(ipAddress ? { ipAddress } : {}),
+          }),
         },
       });
 
@@ -235,6 +271,16 @@ export class AuthService {
               'Account locked after 5 failed login attempts within 15 minutes',
             riskLevel: 'HIGH',
             userId: user.id,
+          },
+        });
+        await this.prisma.auditLog.create({
+          data: {
+            userId: user.id,
+            action: 'ACCOUNT_LOCKED',
+            resource: 'AUTH',
+            result: 'SUCCESS',
+            details:
+              'Account locked after repeated failed login attempts within 15 minutes.',
           },
         });
         throw new UnauthorizedException(
@@ -590,6 +636,15 @@ export class AuthService {
             description: 'A password reset was requested for the account',
             riskLevel: 'MEDIUM',
             userId: user.id,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            userId: user.id,
+            action: 'PASSWORD_RESET_REQUESTED',
+            resource: 'AUTH',
+            result: 'SUCCESS',
+            details: 'Password reset was requested for the account.',
           },
         });
       });

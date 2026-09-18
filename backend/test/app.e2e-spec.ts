@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ServiceUnavailableException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -8,6 +8,7 @@ import type { App } from 'supertest/types';
 
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app-setup';
+import { FraudService } from './../src/fraud/fraud.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 
 jest.setTimeout(60_000);
@@ -93,17 +94,30 @@ function bodyOf<T>(response: { body: unknown }): T {
 describe('BankShield security flows (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let fraudService: FraudService;
   let customerId: number | undefined;
+  let receiverId: number | undefined;
   let analystId: number | undefined;
   let fraudAnalystId: number | undefined;
+  let bankEmployeeId: number | undefined;
   let adminId: number | undefined;
+  let senderAccountId: number | undefined;
+  let receiverAccountId: number | undefined;
+  let beneficiaryId: number | undefined;
+  let completedTransferId: number | undefined;
+  let flaggedTransferId: number | undefined;
+  let flaggedFraudAlertId: number | undefined;
+  let rejectedTransferId: number | undefined;
   let transactionId: number | undefined;
   let fraudAlertId: number | undefined;
+  let investigationCaseId: number | undefined;
 
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const customerEmail = `e2e-customer-${runId}@example.com`;
+  const receiverEmail = `e2e-receiver-${runId}@example.com`;
   const analystEmail = `e2e-analyst-${runId}@example.com`;
   const fraudAnalystEmail = `e2e-fraud-analyst-${runId}@example.com`;
+  const bankEmployeeEmail = `e2e-bank-employee-${runId}@example.com`;
   const adminEmail = `e2e-admin-${runId}@example.com`;
   const initialPassword = 'E2E-initial-password-123';
   const changedPassword = 'E2E-changed-password-123';
@@ -139,6 +153,7 @@ describe('BankShield security flows (e2e)', () => {
     configureApp(app);
     await app.init();
     prisma = moduleFixture.get(PrismaService);
+    fraudService = moduleFixture.get(FraudService);
   });
 
   it('covers authentication, device, MFA, password reset, SOC, and hardening flows', async () => {
@@ -154,6 +169,64 @@ describe('BankShield security flows (e2e)', () => {
     expect(rootResponse.headers['access-control-allow-origin']).toBe(
       'http://localhost:5174',
     );
+
+    await request(app.getHttpServer())
+      .get('/health')
+      .set('X-Request-ID', 'e2e-health-request')
+      .expect(200)
+      .expect((response) => {
+        expect(response.headers['x-request-id']).toBe('e2e-health-request');
+        expect(response.body).toMatchObject({
+          status: 'ok',
+          services: {
+            api: { status: 'ok' },
+            database: { status: 'ok' },
+          },
+        });
+        expect(JSON.stringify(response.body)).not.toMatch(
+          /DATABASE_URL|JWT_SECRET|MFA_ENCRYPTION_KEY|postgresql:\/\//i,
+        );
+      });
+
+    await request(app.getHttpServer())
+      .options('/transactions/transfer')
+      .set('Origin', 'http://localhost:5174')
+      .set('Access-Control-Request-Method', 'POST')
+      .set(
+        'Access-Control-Request-Headers',
+        'Authorization,Content-Type,X-Device-ID,X-Idempotency-Key',
+      )
+      .expect(204)
+      .expect((response) => {
+        expect(response.headers['access-control-allow-origin']).toBe(
+          'http://localhost:5174',
+        );
+        expect(response.headers['access-control-allow-headers']).toContain(
+          'X-Idempotency-Key',
+        );
+      });
+
+    const malformedJsonResponse = await request(app.getHttpServer())
+      .post('/auth/login')
+      .set('Content-Type', 'application/json')
+      .set('X-Request-ID', 'e2e-malformed-json-request')
+      .send('{"email":')
+      .expect(400);
+    expect(bodyOf<ErrorResponseBody>(malformedJsonResponse)).toMatchObject({
+      requestId: 'e2e-malformed-json-request',
+      message: 'Malformed request payload',
+    });
+
+    const oversizedPayloadResponse = await request(app.getHttpServer())
+      .post('/auth/register')
+      .set('Content-Type', 'application/json')
+      .set('X-Request-ID', 'e2e-payload-limit-request')
+      .send(JSON.stringify({ payload: 'x'.repeat(1024 * 1024 + 1) }))
+      .expect(413);
+    expect(bodyOf<ErrorResponseBody>(oversizedPayloadResponse)).toMatchObject({
+      requestId: 'e2e-payload-limit-request',
+      message: 'Request payload is too large',
+    });
 
     const validationResponse = await request(app.getHttpServer())
       .post('/auth/register')
@@ -304,6 +377,217 @@ describe('BankShield security flows (e2e)', () => {
     const changedLoginBody = bodyOf<LoginResponseBody>(changedLoginResponse);
     const changedAccessToken = changedLoginBody.accessToken as string;
 
+    receiverId = (
+      await prisma.user.create({
+        data: {
+          email: receiverEmail,
+          passwordHash: await bcrypt.hash('E2E-receiver-password-123', 12),
+          firstName: 'E2E',
+          lastName: 'Receiver',
+          role: 'CUSTOMER',
+        },
+      })
+    ).id;
+    const senderAccount = await prisma.bankAccount.create({
+      data: {
+        accountNumber: `E2ES-${runId}`,
+        balance: '30000',
+        currency: 'USD',
+        userId: customerId,
+      },
+    });
+    senderAccountId = senderAccount.id;
+    const receiverAccount = await prisma.bankAccount.create({
+      data: {
+        accountNumber: `E2ER-${runId}`,
+        balance: '1000',
+        currency: 'USD',
+        userId: receiverId,
+      },
+    });
+    receiverAccountId = receiverAccount.id;
+    beneficiaryId = (
+      await prisma.beneficiary.create({
+        data: {
+          name: 'E2E Receiver',
+          accountNumber: receiverAccount.accountNumber,
+          bankName: 'BankShield',
+          ownerId: customerId,
+        },
+      })
+    ).id;
+
+    jest.spyOn(fraudService, 'analyzeTransaction').mockResolvedValueOnce({
+      risk_score: 12,
+      risk_level: 'LOW',
+      flagged: false,
+      reasons: [],
+    });
+    const transferPayload = {
+      senderAccountId,
+      beneficiaryId,
+      amount: 125,
+      description: 'E2E low-risk transfer',
+    };
+    const transferIdempotencyKey = `e2e-transfer-${runId}`;
+    const transferResponse = await request(app.getHttpServer())
+      .post('/transactions/transfer')
+      .set('Authorization', bearer(changedAccessToken))
+      .set('X-Device-ID', deviceId)
+      .set('X-Idempotency-Key', transferIdempotencyKey)
+      .send(transferPayload)
+      .expect(201);
+    const transferBody = bodyOf<{
+      transaction: { id: number; status: string; senderAccountId: number };
+      idempotentReplay?: boolean;
+    }>(transferResponse);
+    completedTransferId = transferBody.transaction.id;
+    expect(transferBody.idempotentReplay).toBeUndefined();
+    expect(transferBody.transaction).toMatchObject({
+      status: 'COMPLETED',
+      senderAccountId,
+    });
+
+    const replayResponse = await request(app.getHttpServer())
+      .post('/transactions/transfer')
+      .set('Authorization', bearer(changedAccessToken))
+      .set('X-Device-ID', deviceId)
+      .set('X-Idempotency-Key', transferIdempotencyKey)
+      .send(transferPayload)
+      .expect(201);
+    const replayBody = bodyOf<{
+      transaction: { id: number; status: string };
+      idempotentReplay: boolean;
+    }>(replayResponse);
+    expect(replayBody).toMatchObject({
+      idempotentReplay: true,
+      transaction: { id: completedTransferId, status: 'COMPLETED' },
+    });
+    await request(app.getHttpServer())
+      .post('/transactions/transfer')
+      .set('Authorization', bearer(changedAccessToken))
+      .set('X-Device-ID', deviceId)
+      .set('X-Idempotency-Key', transferIdempotencyKey)
+      .send({ ...transferPayload, amount: 126 })
+      .expect(409);
+
+    await request(app.getHttpServer())
+      .post('/transactions/transfer')
+      .set('Authorization', bearer(changedAccessToken))
+      .set('X-Device-ID', deviceId)
+      .send({ ...transferPayload, amount: 10_001 })
+      .expect(400)
+      .expect((response) => {
+        expect(String(response.body.message)).toContain('per-transfer limit');
+      });
+
+    jest.spyOn(fraudService, 'analyzeTransaction').mockResolvedValueOnce({
+      risk_score: 96,
+      risk_level: 'CRITICAL',
+      flagged: true,
+      reasons: ['E2E high-risk transfer'],
+    });
+    const flaggedResponse = await request(app.getHttpServer())
+      .post('/transactions/transfer')
+      .set('Authorization', bearer(changedAccessToken))
+      .set('X-Device-ID', deviceId)
+      .set('X-Idempotency-Key', `e2e-flagged-${runId}`)
+      .send({ ...transferPayload, amount: 150, description: 'Flag me' })
+      .expect(201);
+    const flaggedBody = bodyOf<{
+      transaction: { id: number; status: string };
+      fraudAlert: { id: number; riskLevel: string };
+    }>(flaggedResponse);
+    flaggedTransferId = flaggedBody.transaction.id;
+    flaggedFraudAlertId = flaggedBody.fraudAlert.id;
+    expect(flaggedBody).toMatchObject({
+      transaction: { status: 'FLAGGED' },
+      fraudAlert: { riskLevel: 'CRITICAL' },
+    });
+
+    jest
+      .spyOn(fraudService, 'analyzeTransaction')
+      .mockRejectedValueOnce(
+        new ServiceUnavailableException(
+          'Fraud detection service is unavailable',
+        ),
+      );
+    const rejectedIdempotencyKey = `e2e-rejected-${runId}`;
+    await request(app.getHttpServer())
+      .post('/transactions/transfer')
+      .set('Authorization', bearer(changedAccessToken))
+      .set('X-Device-ID', deviceId)
+      .set('X-Idempotency-Key', rejectedIdempotencyKey)
+      .send({
+        ...transferPayload,
+        amount: 50,
+        description: 'Fraud-service outage path',
+      })
+      .expect(503);
+    const rejectedTransfer = await prisma.transaction.findUnique({
+      where: { idempotencyKey: rejectedIdempotencyKey },
+      select: { id: true, status: true },
+    });
+    expect(rejectedTransfer).toMatchObject({ status: 'REJECTED' });
+    rejectedTransferId = rejectedTransfer?.id;
+
+    await request(app.getHttpServer())
+      .get('/transactions/me')
+      .set('Authorization', bearer(changedAccessToken))
+      .expect(200)
+      .expect((response) => {
+        const body = bodyOf<Array<{ id: number; status: string }>>(response);
+        expect(body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: completedTransferId,
+              status: 'COMPLETED',
+            }),
+            expect.objectContaining({
+              id: flaggedTransferId,
+              status: 'FLAGGED',
+            }),
+          ]),
+        );
+      });
+
+    await request(app.getHttpServer())
+      .post(`/transactions/${completedTransferId}/reverse`)
+      .set('Authorization', bearer(changedAccessToken))
+      .send({ reason: 'E2E customer requested reversal' })
+      .expect(201)
+      .expect((response) => {
+        const body = bodyOf<{ transaction: { status: string } }>(response);
+        expect(body.transaction.status).toBe('REVERSED');
+      });
+    await request(app.getHttpServer())
+      .post(`/transactions/${completedTransferId}/reverse`)
+      .set('Authorization', bearer(changedAccessToken))
+      .send({ reason: 'E2E duplicate reversal' })
+      .expect(409);
+
+    const finalSenderAccount = await prisma.bankAccount.findUnique({
+      where: { id: senderAccountId },
+      select: { balance: true },
+    });
+    const finalReceiverAccount = await prisma.bankAccount.findUnique({
+      where: { id: receiverAccountId },
+      select: { balance: true },
+    });
+    expect(Number(finalSenderAccount?.balance)).toBe(30000);
+    expect(Number(finalReceiverAccount?.balance)).toBe(1000);
+    expect(
+      await prisma.fraudAlert.findUnique({
+        where: { id: flaggedFraudAlertId },
+      }),
+    ).toBeTruthy();
+    expect(
+      await prisma.securityEvent.findFirst({
+        where: { userId: customerId, eventType: 'FRAUD_SERVICE_UNAVAILABLE' },
+      }),
+    ).toBeTruthy();
+    jest.restoreAllMocks();
+
     transactionId = (
       await prisma.transaction.create({
         data: {
@@ -350,6 +634,17 @@ describe('BankShield security flows (e2e)', () => {
         },
       })
     ).id;
+    bankEmployeeId = (
+      await prisma.user.create({
+        data: {
+          email: bankEmployeeEmail,
+          passwordHash: await bcrypt.hash('E2E-bank-employee-password-123', 12),
+          firstName: 'E2E',
+          lastName: 'Bank Employee',
+          role: 'BANK_EMPLOYEE',
+        },
+      })
+    ).id;
     adminId = (
       await prisma.user.create({
         data: {
@@ -372,6 +667,13 @@ describe('BankShield security flows (e2e)', () => {
       sub: fraudAnalystId,
       email: fraudAnalystEmail,
       role: 'FRAUD_ANALYST',
+      type: 'access',
+      tokenVersion: 0,
+    });
+    const bankEmployeeToken = await app.get(JwtService).signAsync({
+      sub: bankEmployeeId,
+      email: bankEmployeeEmail,
+      role: 'BANK_EMPLOYEE',
       type: 'access',
       tokenVersion: 0,
     });
@@ -407,6 +709,50 @@ describe('BankShield security flows (e2e)', () => {
       .get('/accounts/me')
       .set('Authorization', bearer(changedAccessToken))
       .expect(200);
+
+    const roleTokens = {
+      CUSTOMER: changedAccessToken,
+      BANK_EMPLOYEE: bankEmployeeToken,
+      FRAUD_ANALYST: fraudAnalystToken,
+      SECURITY_ANALYST: analystToken,
+      ADMIN: adminToken,
+    };
+    const rbacMatrix = [
+      {
+        path: '/accounts/me',
+        allowed: ['CUSTOMER', 'BANK_EMPLOYEE'],
+      },
+      {
+        path: '/soc/summary',
+        allowed: ['FRAUD_ANALYST', 'SECURITY_ANALYST', 'ADMIN'],
+      },
+      {
+        path: '/fraud-alerts',
+        allowed: ['FRAUD_ANALYST', 'SECURITY_ANALYST', 'ADMIN'],
+      },
+      {
+        path: '/security-events',
+        allowed: ['SECURITY_ANALYST', 'ADMIN'],
+      },
+      {
+        path: '/audit-logs',
+        allowed: ['SECURITY_ANALYST', 'ADMIN'],
+      },
+      {
+        path: '/admin/users',
+        allowed: ['ADMIN'],
+      },
+    ];
+
+    await request(app.getHttpServer()).get('/soc/summary').expect(401);
+    for (const route of rbacMatrix) {
+      for (const [role, token] of Object.entries(roleTokens)) {
+        await request(app.getHttpServer())
+          .get(route.path)
+          .set('Authorization', bearer(token))
+          .expect(route.allowed.includes(role) ? 200 : 403);
+      }
+    }
 
     const summaryResponse = await request(app.getHttpServer())
       .get('/soc/summary')
@@ -480,7 +826,12 @@ describe('BankShield security flows (e2e)', () => {
       .expect(200)
       .expect((response) => {
         const body = bodyOf<Record<string, number>>(response);
-        expect(body.OPEN).toBeGreaterThanOrEqual(1);
+        expect(body).toMatchObject({
+          OPEN: expect.any(Number),
+          INVESTIGATING: expect.any(Number),
+          RESOLVED: expect.any(Number),
+          FALSE_POSITIVE: expect.any(Number),
+        });
       });
     await request(app.getHttpServer())
       .get('/soc/analytics/security-events-by-type')
@@ -536,6 +887,24 @@ describe('BankShield security flows (e2e)', () => {
       bodyOf<{ eventType: string }>(createdSecurityEventResponse).eventType,
     ).toBe('E2E_MANUAL_REVIEW');
     await request(app.getHttpServer())
+      .get(
+        `/security-events?eventType=E2E_MANUAL_REVIEW&riskLevel=MEDIUM&userId=${analystId}&startDate=2026-01-01T00:00:00.000Z&limit=5`,
+      )
+      .set('Authorization', bearer(analystToken))
+      .expect(200)
+      .expect((response) => {
+        const body =
+          bodyOf<Array<{ eventType: string; userId: number }>>(response);
+        expect(body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              eventType: 'E2E_MANUAL_REVIEW',
+              userId: analystId,
+            }),
+          ]),
+        );
+      });
+    await request(app.getHttpServer())
       .get('/soc/audit-logs')
       .set('Authorization', bearer(analystToken))
       .expect(200)
@@ -569,6 +938,33 @@ describe('BankShield security flows (e2e)', () => {
         expect(body.byAction).toBeDefined();
       });
     await request(app.getHttpServer())
+      .get(
+        `/audit-logs?action=SECURITY_EVENT_CREATED&user_id=${analystId}&search=SecurityEvent&startDate=2026-01-01T00:00:00.000Z&limit=10`,
+      )
+      .set('Authorization', bearer(analystToken))
+      .expect(200)
+      .expect((response) => {
+        const body =
+          bodyOf<Array<{ action: string; userId: number }>>(response);
+        expect(body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              action: 'SECURITY_EVENT_CREATED',
+              userId: analystId,
+            }),
+          ]),
+        );
+      });
+    await request(app.getHttpServer())
+      .patch(`/audit-logs/${auditLogId}`)
+      .set('Authorization', bearer(adminToken))
+      .send({ details: 'tamper attempt' })
+      .expect(404);
+    await request(app.getHttpServer())
+      .delete(`/audit-logs/${auditLogId}`)
+      .set('Authorization', bearer(adminToken))
+      .expect(404);
+    await request(app.getHttpServer())
       .get('/admin/users')
       .set('Authorization', bearer(analystToken))
       .expect(403);
@@ -584,7 +980,7 @@ describe('BankShield security flows (e2e)', () => {
     await request(app.getHttpServer())
       .get('/security-events')
       .set('Authorization', bearer(fraudAnalystToken))
-      .expect(200);
+      .expect(403);
     await request(app.getHttpServer())
       .get('/audit-logs')
       .set('Authorization', bearer(fraudAnalystToken))
@@ -632,20 +1028,36 @@ describe('BankShield security flows (e2e)', () => {
       .expect(201);
     const caseBody = bodyOf<StatusResponseBody>(caseResponse);
     expect(caseBody.case).toMatchObject({
-      id: fraudAlertId,
       alert_id: fraudAlertId,
       status: 'INVESTIGATING',
     });
+    investigationCaseId = caseBody.case?.id;
+    expect(investigationCaseId).toEqual(expect.any(Number));
+
+    await request(app.getHttpServer())
+      .post('/soc/cases')
+      .set('Authorization', bearer(analystToken))
+      .send({
+        alert_id: fraudAlertId,
+        assigned_analyst: 'E2E Analyst',
+        summary: 'Duplicate investigation should be rejected',
+      })
+      .expect(400);
 
     const casesResponse = await request(app.getHttpServer())
       .get('/soc/cases')
       .set('Authorization', bearer(analystToken))
       .expect(200);
     const casesBody = bodyOf<CaseResponseBody[]>(casesResponse);
-    expect(casesBody.some((item) => item.id === fraudAlertId)).toBe(true);
+    expect(
+      casesBody.some(
+        (item) =>
+          item.id === investigationCaseId && item.alert_id === fraudAlertId,
+      ),
+    ).toBe(true);
 
     await request(app.getHttpServer())
-      .patch(`/soc/cases/${fraudAlertId}/status`)
+      .patch(`/soc/cases/${investigationCaseId}/status`)
       .set('Authorization', bearer(analystToken))
       .send({ status: 'RESOLVED' })
       .expect(200)
@@ -817,15 +1229,53 @@ describe('BankShield security flows (e2e)', () => {
 
   afterAll(async () => {
     try {
+      if (flaggedFraudAlertId) {
+        await prisma.investigationCase.deleteMany({
+          where: { alertId: flaggedFraudAlertId },
+        });
+        await prisma.fraudAlert.deleteMany({
+          where: { id: flaggedFraudAlertId },
+        });
+      }
+      await prisma.transaction.deleteMany({
+        where: {
+          id: {
+            in: [
+              completedTransferId,
+              flaggedTransferId,
+              rejectedTransferId,
+            ].filter((id): id is number => typeof id === 'number'),
+          },
+        },
+      });
+      if (fraudAlertId) {
+        await prisma.investigationCase.deleteMany({
+          where: { alertId: fraudAlertId },
+        });
+      }
       if (fraudAlertId) {
         await prisma.fraudAlert.delete({ where: { id: fraudAlertId } });
       }
       if (transactionId) {
         await prisma.transaction.delete({ where: { id: transactionId } });
       }
+      if (beneficiaryId) {
+        await prisma.beneficiary.deleteMany({ where: { id: beneficiaryId } });
+      }
+      await prisma.bankAccount.deleteMany({
+        where: {
+          id: {
+            in: [senderAccountId, receiverAccountId].filter(
+              (id): id is number => typeof id === 'number',
+            ),
+          },
+        },
+      });
       if (customerId) await cleanupUser(customerEmail);
+      if (receiverId) await cleanupUser(receiverEmail);
       if (analystId) await cleanupUser(analystEmail);
       if (fraudAnalystId) await cleanupUser(fraudAnalystEmail);
+      if (bankEmployeeId) await cleanupUser(bankEmployeeEmail);
       if (adminId) await cleanupUser(adminEmail);
     } finally {
       await app?.close();

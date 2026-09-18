@@ -86,6 +86,15 @@ function getCorsOrigins(config: Record<string, unknown>, errors: string[]) {
   return origins.join(',');
 }
 
+function isLocalServiceUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    return ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function validateConfiguration(config: Record<string, unknown>) {
   const errors: string[] = [];
   const databaseUrl = requirePostgresUrl(config, 'DATABASE_URL', errors);
@@ -123,6 +132,16 @@ export function validateConfiguration(config: Record<string, unknown>) {
   }
 
   const corsOrigins = getCorsOrigins(config, errors);
+
+  if (nodeEnv === 'production') {
+    if (isLocalServiceUrl(databaseUrl)) {
+      errors.push('DATABASE_URL must not point to localhost in production');
+    }
+
+    if (isLocalServiceUrl(fraudEngineUrl)) {
+      errors.push('FRAUD_ENGINE_URL must not point to localhost in production');
+    }
+  }
 
   if (errors.length > 0) {
     throw new Error(`Invalid BankShield configuration: ${errors.join('; ')}`);

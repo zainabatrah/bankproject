@@ -1,16 +1,45 @@
-# React + Vite
+# BankShield Security Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React/Vite security operations dashboard for BankShield.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```powershell
+npm install
+npm run dev -- --port 5174
+```
 
-## React Compiler
+Open `http://localhost:5174`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Backend integration
 
-## Expanding the ESLint configuration
+Create a local `.env` from `.env.example`:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```env
+VITE_API_URL=http://localhost:3000
+VITE_SOC_API_URL=
+VITE_SOC_ACCESS_TOKEN=
+```
+
+The dashboard uses the real NestJS backend APIs:
+
+- `/fraud-alerts` for alert queues and status updates
+- `/security-events` for security events
+- `/audit-logs` for audit history
+- `/soc/cases` and `/soc/analytics/*` for investigation cases and SOC metrics
+
+For local development, sign in through the main BankShield frontend first; the dashboard reads the stored `bankshield.auth.session.v1` access token. `VITE_SOC_ACCESS_TOKEN` is only a local debugging escape hatch and must not contain a committed real token.
+
+## Demo path
+
+1. Start the fraud service and NestJS backend.
+2. Sign in through the main frontend as a security analyst or admin.
+3. Open this dashboard and confirm alerts, cases, security events, and audit logs load from the backend.
+4. Triage a fraud alert, create or update an investigation case, and review security/audit activity.
+
+## Validation
+
+```powershell
+npm run build
+npm audit --audit-level=high
+```
