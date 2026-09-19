@@ -98,6 +98,15 @@ Default local URLs:
 - Banking frontend: `http://localhost:5173`
 - SOC dashboard: `http://localhost:5174`
 
+## Docker development
+
+Docker Desktop with the WSL 2 backend is required.
+
+Create the private Docker environment file:
+
+```powershell
+Copy-Item .env.docker.example .env.docker
+
 ## Verification
 
 ```powershell
