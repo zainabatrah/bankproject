@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: bankshield_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: bankshield
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/docker/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bankshield_user -d bankshield"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  fraud-service:
+    build:
+      context: ./backend/fraud-service
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: fraud_detection_db
+      DB_USER: bankshield_user
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      FRAUD_API_KEY: ${FRAUD_API_KEY}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql://bankshield_user:${POSTGRES_PASSWORD}@postgres:5432/bankshield
+      JWT_SECRET: ${JWT_SECRET}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY}
+      FRAUD_ENGINE_URL: http://fraud-service:8000
+      NODE_ENV: production
+      PORT: 3000
+      CORS_ORIGINS: http://localhost:5173,http://localhost:5174
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      fraud-service:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:3000
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+  security-dashboard:
+    build:
+      context: ./security-dashboard
+      args:
+        VITE_API_URL: http://localhost:3000
+        VITE_SOC_API_URL: http://localhost:3000/soc
+    ports:
+      - "5174:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
