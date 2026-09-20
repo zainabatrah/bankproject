@@ -1,4 +1,13 @@
-const AUTH_SESSION_STORAGE_KEY = "bankshield.auth.session.v1";
+export const AUTH_SESSION_STORAGE_KEY = "bankshield.auth.session.v1";
+const DEVICE_ID_STORAGE_KEY = "bankshield.soc.device.v1";
+const ALLOWED_SOC_ROLES = new Set([
+  "FRAUD_ANALYST",
+  "SECURITY_ANALYST",
+  "ADMIN",
+]);
+export const AUTH_SESSION_EVENT = "bankshield:soc-auth-changed";
+
+let refreshPromise = null;
 
 export const SOC_API_URL = (
   import.meta.env.VITE_SOC_API_URL?.trim() ||
@@ -9,31 +18,78 @@ export const API_URL = (
   import.meta.env.VITE_API_URL?.trim() || SOC_API_URL.replace(/\/soc$/, "")
 ).replace(/\/+$/, "");
 
-function getAccessToken() {
-  const configuredToken = import.meta.env.VITE_SOC_ACCESS_TOKEN?.trim();
-  if (configuredToken) return configuredToken;
+export function getStoredSession() {
+  if (typeof window === "undefined") return null;
 
-  if (typeof window === "undefined") return "";
+  try {
+    const rawSession = window.localStorage.getItem(
+      AUTH_SESSION_STORAGE_KEY,
+    );
 
-  for (const storage of [window.localStorage, window.sessionStorage]) {
-    try {
-      const rawSession = storage.getItem(AUTH_SESSION_STORAGE_KEY);
-      if (!rawSession) continue;
+    if (!rawSession) return null;
 
-      const session = JSON.parse(rawSession);
-      if (
-        session &&
-        session.isDemo !== true &&
-        typeof session.accessToken === "string"
-      ) {
-        return session.accessToken;
-      }
-    } catch {
-      // Try the next storage location when a browser storage entry is invalid.
+    const session = JSON.parse(rawSession);
+
+    if (
+      !session ||
+      session.isDemo === true ||
+      typeof session.accessToken !== "string" ||
+      typeof session.refreshToken !== "string" ||
+      !session.user
+    ) {
+      return null;
     }
+
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredSession(session) {
+  window.localStorage.setItem(
+    AUTH_SESSION_STORAGE_KEY,
+    JSON.stringify(session),
+  );
+  window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
+}
+
+export function clearStoredSession() {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+   window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
+}
+
+function getDeviceId() {
+  if (typeof window === "undefined") return "soc-dashboard";
+
+  let deviceId = window.localStorage.getItem(
+    DEVICE_ID_STORAGE_KEY,
+  );
+
+  if (!deviceId) {
+    deviceId =
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `soc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    window.localStorage.setItem(
+      DEVICE_ID_STORAGE_KEY,
+      deviceId,
+    );
   }
 
-  return "";
+  return deviceId;
+}
+
+function getAccessToken() {
+  const configuredToken =
+    import.meta.env.VITE_SOC_ACCESS_TOKEN?.trim();
+
+  if (configuredToken) return configuredToken;
+
+  return getStoredSession()?.accessToken ?? "";
 }
 
 function getErrorMessage(payload, fallback) {
@@ -70,31 +126,127 @@ export async function backendRequest(path, options = {}) {
   return apiRequest(`${API_URL}${path}`, options);
 }
 
-async function apiRequest(url, options = {}) {
-  const { body, headers = {}, ...requestOptions } = options;
+async function refreshSession() {
+  const session = getStoredSession();
+
+  if (!session?.refreshToken) {
+    throw new Error("No refreshable session is available.");
+  }
+
+  const response = await fetch(`${API_URL}/auth/refresh`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-Device-ID": getDeviceId(),
+    },
+    body: JSON.stringify({
+      refreshToken: session.refreshToken,
+    }),
+  });
+
+  const payload = await parseResponse(response);
+
+  if (!response.ok) {
+    clearStoredSession();
+
+    throw new Error(
+      getErrorMessage(
+        payload,
+        "Your session has expired. Please sign in again.",
+      ),
+    );
+  }
+
+  const latestSession = getStoredSession();
+
+  if (!latestSession) {
+    throw new Error("The session ended while refreshing.");
+  }
+
+  const refreshedSession = {
+    ...latestSession,
+    accessToken: payload.accessToken,
+    refreshToken: payload.refreshToken,
+  };
+
+  saveStoredSession(refreshedSession);
+
+  return refreshedSession;
+}
+
+function refreshAuthSession() {
+  if (!refreshPromise) {
+    refreshPromise = refreshSession().finally(() => {
+      refreshPromise = null;
+    });
+  }
+
+  return refreshPromise;
+}
+
+async function apiRequest(url, options = {}, retry = true) {
+  const {
+    body,
+    headers = {},
+    skipAuth = false,
+    ...requestOptions
+  } = options;
+
   const requestHeaders = new Headers(headers);
   requestHeaders.set("Accept", "application/json");
+  requestHeaders.set("X-Device-ID", getDeviceId());
 
   if (body !== undefined) {
     requestHeaders.set("Content-Type", "application/json");
   }
 
-  const accessToken = getAccessToken();
-  if (accessToken) {
-    requestHeaders.set("Authorization", `Bearer ${accessToken}`);
+  if (!skipAuth) {
+    const accessToken = getAccessToken();
+
+    if (accessToken) {
+      requestHeaders.set(
+        "Authorization",
+        `Bearer ${accessToken}`,
+      );
+    }
   }
 
   const response = await fetch(url, {
     ...requestOptions,
     headers: requestHeaders,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body:
+      body === undefined
+        ? undefined
+        : JSON.stringify(body),
   });
+
   const payload = await parseResponse(response);
 
+  if (
+    response.status === 401 &&
+    retry &&
+    !skipAuth &&
+    getStoredSession()?.refreshToken
+  ) {
+    await refreshAuthSession();
+    return apiRequest(url, options, false);
+  }
+
   if (!response.ok) {
-    throw new Error(
-      getErrorMessage(payload, `SOC request failed (${response.status})`),
+    if (response.status === 401) {
+      clearStoredSession();
+    }
+
+    const error = new Error(
+      getErrorMessage(
+        payload,
+        `SOC request failed (${response.status})`,
+      ),
     );
+
+    error.status = response.status;
+    throw error;
   }
 
   return payload;
@@ -173,6 +325,93 @@ async function downloadSocFile(path, filename) {
   anchor.remove();
   URL.revokeObjectURL(url);
 }
+
+export const authApi = {
+  async login(email, password) {
+    const result = await backendRequest("/auth/login", {
+      method: "POST",
+      skipAuth: true,
+      body: {
+        email: email.trim().toLowerCase(),
+        password,
+      },
+    });
+
+    if (result.mfaRequired) {
+      return result;
+    }
+
+    if (!result.user || !ALLOWED_SOC_ROLES.has(result.user.role)) {
+      if (result.refreshToken) {
+        await backendRequest("/auth/logout", {
+          method: "POST",
+          skipAuth: true,
+          body: {
+            refreshToken: result.refreshToken,
+          },
+        }).catch(() => {});
+      }
+
+      throw new Error(
+        "This dashboard is restricted to security analysts, fraud analysts, and administrators.",
+      );
+    }
+
+    saveStoredSession(result);
+    return result;
+  },
+
+  async verifyMfa(mfaToken, code) {
+  const result = await backendRequest(
+    "/auth/mfa/login-verify",
+    {
+      method: "POST",
+      skipAuth: true,
+      body: {
+        mfaToken,
+        code,
+      },
+    },
+  );
+
+  if (!result.user || !ALLOWED_SOC_ROLES.has(result.user.role)) {
+    if (result.refreshToken) {
+      await backendRequest("/auth/logout", {
+        method: "POST",
+        skipAuth: true,
+        body: {
+          refreshToken: result.refreshToken,
+        },
+      }).catch(() => {});
+    }
+
+    throw new Error(
+      "This dashboard is restricted to security analysts, fraud analysts, and administrators.",
+    );
+  }
+
+  saveStoredSession(result);
+  return result;
+},
+
+  async logout() {
+    const session = getStoredSession();
+
+    clearStoredSession();
+
+    if (!session?.refreshToken) return;
+
+    await backendRequest("/auth/logout", {
+      method: "POST",
+      skipAuth: true,
+      body: {
+        refreshToken: session.refreshToken,
+      },
+    }).catch(() => {});
+  },
+
+  getSession: getStoredSession,
+};
 
 export const socApi = {
   getSummary: () => socRequest("/summary"),

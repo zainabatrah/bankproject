@@ -5,6 +5,7 @@ import SecurityEventsPage from "./pages/SecurityEventsPage";
 import AuditLogsPage from "./pages/AuditLogsPage";
 import ReportsPage from "./pages/ReportsPage";
 import NotificationsPage from "./pages/NotificationsPage";
+import LoginPage from "./pages/LoginPage";
 import {
   Bar,
   BarChart,
@@ -25,11 +26,18 @@ import { useEffect, useState } from "react";
 import "./App.css";
 import { useLocation, useNavigate } from "react-router";
 import FraudAlertsPage from "./pages/FraudAlertsPage";
-import { socApi } from "./api";
+import {
+  AUTH_SESSION_EVENT,
+  authApi,
+  getStoredSession,
+  socApi,
+} from "./api";
 
 function App() {
   const location = useLocation();
   const navigate = useNavigate();
+
+  const [session, setSession] = useState(() => getStoredSession());
 
   const showingDashboard =
     location.pathname === "/";
@@ -61,7 +69,34 @@ function App() {
     useState([]);
 
   useEffect(() => {
+  function synchronizeSession() {
+    setSession(getStoredSession());
+  }
+
+  window.addEventListener(
+    AUTH_SESSION_EVENT,
+    synchronizeSession,
+  );
+
+  window.addEventListener("storage", synchronizeSession);
+
+  return () => {
+    window.removeEventListener(
+      AUTH_SESSION_EVENT,
+      synchronizeSession,
+    );
+
+    window.removeEventListener(
+      "storage",
+      synchronizeSession,
+    );
+  };
+}, []);
+
+  useEffect(() => {
+    if (!session) return undefined;
     async function loadDashboard() {
+      setError("");
       try {
         const [
           summaryData,
@@ -115,6 +150,10 @@ function App() {
         );
         setRiskData(formattedRiskData);
       } catch (requestError) {
+        if (!getStoredSession()) {
+  setSession(null);
+  return;
+}
         setError(
           requestError instanceof Error
             ? requestError.message
@@ -124,7 +163,24 @@ function App() {
     }
 
     loadDashboard();
-  }, []);
+  }, [session]);
+
+  if (!session) {
+  return (
+    <LoginPage
+      onAuthenticated={(authenticatedSession) => {
+        setSession(authenticatedSession);
+        setError("");
+        navigate("/");
+      }}
+    />
+  );
+}
+async function handleLogout() {
+  await authApi.logout();
+  setSession(null);
+  navigate("/");
+}
 
   const summaryCards = [
     {
@@ -210,7 +266,22 @@ function App() {
           >
           Notifications
         </button>
-        </nav>        
+        </nav>  
+        <div className="soc-sidebar-session">
+  <div>
+    <strong>
+      {session.user.firstName} {session.user.lastName}
+    </strong>
+
+    <span>
+      {session.user.role.replaceAll("_", " ")}
+    </span>
+  </div>
+
+  <button type="button" onClick={handleLogout}>
+    Sign out
+  </button>
+</div>      
       </aside>
       {showingAlertsPage ? (
         <FraudAlertsPage />
