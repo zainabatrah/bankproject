@@ -43,6 +43,7 @@ import pandas as pd
 
 from pydantic import BaseModel
 from pydantic import BaseModel, Field
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
