@@ -54,9 +54,24 @@ jobs:
       - name: Test backend
         run: npm test -- --runInBand
 
-  fraud-service:
+    fraud-service:
     name: FastAPI fraud service
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fraud_detection_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fraud_detection_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     defaults:
       run:
@@ -83,6 +98,9 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Create fraud database tables
+        run: python create_tables.py
 
       - name: Test fraud service
         run: pytest -q
