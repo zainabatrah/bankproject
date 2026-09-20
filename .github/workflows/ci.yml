@@ -54,7 +54,10 @@ jobs:
       - name: Test backend
         run: npm test -- --runInBand
 
-    fraud-service:
+      - name: Build backend
+        run: npm run build
+
+  fraud-service:
     name: FastAPI fraud service
     runs-on: ubuntu-latest
 
