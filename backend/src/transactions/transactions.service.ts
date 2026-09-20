@@ -293,6 +293,37 @@ export class TransactionsService {
     });
 
     // ----------------------------------
+    // 10. CALCULATE AVERAGE AMOUNT
+    // ----------------------------------
+
+    const historicalTransactions = await this.prisma.transaction.aggregate({
+      where: {
+        senderAccountId: senderAccount.id,
+      },
+      _avg: {
+        amount: true,
+      },
+    });
+
+    const averageAmount = Number(
+      historicalTransactions._avg.amount ?? dto.amount,
+    );
+
+    // ----------------------------------
+    // 11. COUNT FAILED LOGINS LAST HOUR
+    // ----------------------------------
+
+    const failedLoginsLastHour = await this.prisma.auditLog.count({
+      where: {
+        userId,
+        action: 'LOGIN_FAILED',
+        createdAt: {
+          gte: oneHourAgo,
+        },
+      },
+    });
+
+    // ----------------------------------
     // 10. CHECK BENEFICIARY AGE
     // ----------------------------------
 
@@ -309,17 +340,17 @@ export class TransactionsService {
     let fraudResult: FraudAnalysisResponse;
     try {
       fraudResult = await this.fraudService.analyzeTransaction({
-        transaction_id: reference,
-
-        user_id: userId,
-
         amount: dto.amount,
+
+        average_amount: averageAmount,
 
         new_device: isNewDevice,
 
         new_beneficiary: isNewBeneficiary,
 
         transactions_last_hour: transactionsLastHour,
+
+        failed_logins_last_hour: failedLoginsLastHour,
 
         transaction_hour: new Date().getHours(),
       });

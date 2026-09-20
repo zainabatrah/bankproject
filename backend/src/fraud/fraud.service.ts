@@ -9,22 +9,26 @@ import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 
 export interface FraudAnalysisRequest {
-  transaction_id: string;
-  user_id: number;
   amount: number;
+  average_amount: number;
   new_device: boolean;
   new_beneficiary: boolean;
   transactions_last_hour: number;
+  failed_logins_last_hour: number;
   transaction_hour: number;
+}
+
+interface FraudEngineResponse {
+  risk_score: number;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  decision: 'APPROVE' | 'REVIEW' | 'BLOCK';
+  reasons: string[];
 }
 
 export interface FraudAnalysisResponse {
   risk_score: number;
-
   risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-
   flagged: boolean;
-
   reasons: string[];
 }
 
@@ -32,6 +36,7 @@ export interface FraudAnalysisResponse {
 export class FraudService {
   private readonly logger = new Logger(FraudService.name);
   private readonly fraudEngineUrl: string;
+  private readonly fraudApiKey: string;
 
   constructor(
     private readonly httpService: HttpService,
@@ -39,6 +44,8 @@ export class FraudService {
   ) {
     this.fraudEngineUrl =
       this.configService.getOrThrow<string>('FRAUD_ENGINE_URL');
+
+    this.fraudApiKey = this.configService.getOrThrow<string>('FRAUD_API_KEY');
   }
 
   async analyzeTransaction(
@@ -46,13 +53,25 @@ export class FraudService {
   ): Promise<FraudAnalysisResponse> {
     try {
       const response = await firstValueFrom(
-        this.httpService.post<FraudAnalysisResponse>(
-          `${this.fraudEngineUrl}/analyze-transaction`,
+        this.httpService.post<FraudEngineResponse>(
+          `${this.fraudEngineUrl}/analyze`,
           transaction,
+          {
+            headers: {
+              'X-API-Key': this.fraudApiKey,
+            },
+          },
         ),
       );
 
-      return response.data;
+      const result = response.data;
+
+      return {
+        risk_score: result.risk_score,
+        risk_level: result.severity,
+        flagged: result.severity === 'HIGH' || result.severity === 'CRITICAL',
+        reasons: result.reasons,
+      };
     } catch (error) {
       const axiosError = error as AxiosError;
 
