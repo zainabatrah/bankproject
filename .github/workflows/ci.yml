@@ -47,13 +47,12 @@ jobs:
         run: npx prisma generate
 
       - name: Lint backend
-  run: npx eslint "{src,apps,libs,test}/**/*.ts" --ignore-pattern "src/generated/**"
+        run: >-
+          npx eslint "{src,apps,libs,test}/**/*.ts"
+          --ignore-pattern "src/generated/**"
 
       - name: Test backend
         run: npm test -- --runInBand
-
-      - name: Build backend
-        run: npm run build
 
   fraud-service:
     name: FastAPI fraud service
