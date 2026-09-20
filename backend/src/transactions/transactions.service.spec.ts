@@ -57,7 +57,10 @@ describe('TransactionsService', () => {
     };
     beneficiary: { findFirst: jest.Mock };
     fraudAlert: { create: jest.Mock };
-    auditLog: { create: jest.Mock };
+    auditLog: {
+      create: jest.Mock;
+      count: jest.Mock;
+    };
     securityEvent: { create: jest.Mock };
     $transaction: jest.Mock;
   };
@@ -69,7 +72,10 @@ describe('TransactionsService', () => {
     prisma = {
       transaction: {
         findUnique: jest.fn().mockResolvedValue(null),
-        aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 0 } }),
+        aggregate: jest.fn().mockResolvedValue({
+          _sum: { amount: 0 },
+          _avg: { amount: 125 },
+        }),
         count: jest.fn().mockResolvedValue(0),
         create: jest.fn().mockImplementation(({ data }) =>
           Promise.resolve({
@@ -89,7 +95,10 @@ describe('TransactionsService', () => {
       },
       beneficiary: { findFirst: jest.fn().mockResolvedValue(beneficiary) },
       fraudAlert: { create: jest.fn() },
-      auditLog: { create: jest.fn().mockResolvedValue({}) },
+      auditLog: {
+        create: jest.fn().mockResolvedValue({}),
+        count: jest.fn().mockResolvedValue(0),
+      },
       securityEvent: { create: jest.fn().mockResolvedValue({}) },
       $transaction: jest.fn((callback: (tx: typeof prisma) => unknown) =>
         Promise.resolve(callback(prisma)),
