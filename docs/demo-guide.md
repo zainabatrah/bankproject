@@ -1,148 +1,154 @@
+
 # BankShield Final Demo Guide
 
-Use this as the presentation runbook for Task 49.
+Use this runbook for the final BankShield presentation.
 
 ## Pre-demo checklist
 
-1. Confirm PostgreSQL is running and `backend\.env` points to the demo database.
-2. Confirm secrets in `backend\.env` are not placeholders.
-3. Run migrations:
+1. Start Docker Desktop.
+2. Confirm `.env.docker` exists and contains non-placeholder local secrets.
+3. Never display or commit `.env.docker`.
+4. Validate the Compose configuration:
 
    ```powershell
-   cd backend
-   npx prisma migrate deploy
-   npx prisma generate
-   ```
+   docker compose --env-file .env.docker config --quiet
 
-4. Run verification:
+
+```
+
+5. Start all services:
 
    ```powershell
-   npm test -- --runInBand
-   npm run test:e2e -- --runInBand
-   npm run build
-   npm audit --audit-level=high
+   docker compose --env-file .env.docker up -d --build
    ```
 
-5. Build the frontend apps:
+6. Confirm all containers are running:
 
    ```powershell
-   cd ..\frontend
-   npm run build
-
-   cd ..\security-dashboard
-   npm run build
+   docker compose --env-file .env.docker ps
    ```
 
-## Start services
+7. Check both APIs:
 
-Open four terminals.
+   ```powershell
+   Invoke-WebRequest -UseBasicParsing http://localhost:3000/health |
+     Select-Object StatusCode, Content
 
-### 1. Fraud service
+   Invoke-WebRequest -UseBasicParsing http://localhost:8000/ |
+     Select-Object StatusCode, Content
+   ```
 
-```powershell
-cd backend\fraud-service
-.\.venv\Scripts\Activate.ps1
-uvicorn main:app --reload --port 8000
-```
+## Service URLs
 
-### 2. Backend API
+| Service | URL |
+|---|---|
+| Banking frontend | http://localhost:5173 |
+| Security dashboard | http://localhost:5174 |
+| NestJS backend | http://localhost:3000 |
+| FastAPI fraud service | http://localhost:8000 |
 
-```powershell
-cd backend
-npm run start:dev
-```
+The banking frontend and security dashboard have separate login sessions.
 
-Check:
+## Demo accounts
 
-```powershell
-Invoke-RestMethod http://localhost:3000/health
-```
+Prepare:
 
-### 3. Banking frontend
+- One active CUSTOMER account for banking operations.
+- One active SECURITY_ANALYST account for the SOC dashboard.
+- Optionally, one FRAUD_ANALYST or ADMIN account.
 
-```powershell
-cd frontend
-npm run dev
-```
-
-Open `http://localhost:5173`.
-
-### 4. Security dashboard
-
-```powershell
-cd security-dashboard
-npm run dev -- --port 5174
-```
-
-Open `http://localhost:5174`.
+Never include account passwords in this document or in Git.
 
 ## Recommended demo story
 
-### 1. Platform health and hardening
+### 1. Platform health
 
-- Show `GET /health` returning API and database status.
-- Mention no secrets are exposed.
-- Mention request IDs, global safe error handling, validation, CORS, payload limits, security headers, and rate limiting.
+- Show the Docker containers running.
+- Show `GET /health` returning healthy API and database states.
+- Mention request IDs, validation, CORS, payload limits, rate limiting, and security headers.
 
-### 2. Authentication workflow
+### 2. Authentication and authorization
 
-- Register or sign in as a customer.
-- Show session/device tracking.
-- Demonstrate MFA setup or explain the MFA flow if time is short.
-- Mention password changes and logout revoke tokens/sessions.
+- Sign in to the banking frontend as a customer.
+- Show the customer profile and account.
+- Explain device tracking, MFA, refresh-token rotation, and logout revocation.
+- Explain that CUSTOMER users cannot access SOC endpoints.
+- Sign in independently at `http://localhost:5174` as a SECURITY_ANALYST.
 
-### 3. Banking workflow
+### 3. Normal transfer
 
-- Show customer accounts and beneficiaries.
-- Create a normal transfer.
-- Refresh transaction history and account balances.
-- Explain idempotency: repeating the same `X-Idempotency-Key` returns the same transaction instead of moving money twice.
-- Mention transfer limits reject oversized or excessive daily transfers.
+- Open the customer’s accounts and beneficiaries.
+- Submit a low-risk transfer.
+- Show the completed transaction and updated balances.
+- Explain that `X-Idempotency-Key` prevents duplicate money movement.
+- Mention per-transfer and daily limits.
 
-### 4. Fraud workflow
+### 4. Fraud detection
 
-- Submit a risky transfer or use existing fraud alert data.
-- Show the flagged transfer does not move money.
-- Show the resulting fraud alert.
-- Explain fraud-service outage handling: transfer is rejected, balances remain unchanged, security event and audit log are recorded.
+- Use an existing HIGH-risk fraud alert or generate a controlled risky transfer.
+- Show the risk score, risk level, and detection reasons.
+- Show that a flagged transfer does not move money.
+- Show the resulting fraud alert in the security dashboard.
+
+A reproducible risky scenario can include:
+
+- A new device
+- A beneficiary created within 24 hours
+- Three recent failed login attempts
 
 ### 5. Investigation workflow
 
-- Open the SOC/security dashboard.
-- Show fraud alerts and risk distribution.
-- Move an alert into investigation.
-- Create or view an investigation case.
-- Add a note and resolve the case.
+- Open the fraud alert in the security dashboard.
+- Change its status to `INVESTIGATING`.
+- Create or open the linked investigation case.
+- Add an analyst note if available.
+- Resolve the case.
+- Show the dashboard totals updating.
 
-### 6. Security and audit workflow
+### 6. Security events and audit trail
 
-- Show security events filtering.
-- Show audit log filtering.
-- Point out audit logs are append-only: search/view exists, edit/delete routes do not.
-- Show RBAC by using a lower-privilege account if available, or explain the e2e role matrix verifies access boundaries.
+- Show failed-login security events.
+- Show audit records for `LOGIN_FAILED`, `TRANSFER_FLAGGED`, alert status changes, and investigation changes.
+- Explain that audit logs are append-only.
 
 ### 7. Reversal workflow
 
-- Reverse a completed transfer.
-- Show balances returning to their prior values.
-- Attempt a second reversal and show it is rejected.
+- Select a completed transaction.
+- Reverse it using an authorized employee or admin workflow.
+- Show the balances returning to their previous values.
+- Attempt a second reversal and show that it is rejected.
 
-## Demo roles to prepare
+### 8. Security evidence
 
-Prepare at least:
+Mention the verified controls:
 
-- Customer account for banking flows.
-- Security analyst or admin account for dashboard, security events, and audit logs.
-- Fraud analyst account if demonstrating fraud-alert-only access.
+- Protected endpoints return `401` without authentication.
+- CUSTOMER access to SOC endpoints returns `403`.
+- FastAPI rejects missing or invalid API keys.
+- Revoked refresh tokens cannot be reused.
+- HTTP security and rate-limit headers are enabled.
+- GitHub Actions checks all four applications.
 
 ## Fallback plan
 
-If the fraud service is unavailable during the demo, use it as the failure-handling demonstration:
+If the FastAPI service becomes unavailable:
 
 - The backend returns a safe `503`.
 - A rejected transaction is recorded.
 - A `FRAUD_SERVICE_UNAVAILABLE` security event is created.
-- An audit log entry is written.
-- Money is not moved.
+- An audit record is written.
+- Account balances remain unchanged.
 
-If the dashboard cannot read a token, sign in through the main frontend first. The dashboard reads the local `bankshield.auth.session.v1` session. `VITE_SOC_ACCESS_TOKEN` can be used only for local debugging.
+If a session expires, sign in again through the affected application.
+
+Useful diagnostics:
+
+```powershell
+docker compose --env-file .env.docker ps -a
+docker compose --env-file .env.docker logs backend --tail 100
+docker compose --env-file .env.docker logs fraud-service --tail 100
+```
+
+## Supporting evidence
+
+See `docs/integration-security-testing.md` for the completed integration and security test results.
