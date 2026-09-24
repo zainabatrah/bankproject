@@ -1,0 +1,75 @@
+services:
+  - type: web
+    name: zainabatrah-bankshield-backend
+    runtime: node
+    plan: free
+    branch: main
+    rootDir: backend
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npx prisma migrate deploy && npm run start:prod
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: MFA_ENCRYPTION_KEY
+        sync: false
+      - key: FRAUD_API_KEY
+        sync: false
+      - key: FRAUD_ENGINE_URL
+        value: https://zainabatrah-bankshield-fraud-service.onrender.com
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGINS
+        value: https://zainabatrah-bankshield-frontend.onrender.com,https://zainabatrah-bankshield-soc.onrender.com
+
+  - type: web
+    name: zainabatrah-bankshield-fraud-service
+    runtime: docker
+    plan: free
+    branch: main
+    dockerfilePath: backend/fraud-service/Dockerfile
+    dockerContext: backend/fraud-service
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: FRAUD_API_KEY
+        sync: false
+
+  - type: web
+    name: zainabatrah-bankshield-frontend
+    runtime: static
+    branch: main
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    autoDeployTrigger: commit
+    envVars:
+      - key: VITE_API_URL
+        value: https://zainabatrah-bankshield-backend.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  - type: web
+    name: zainabatrah-bankshield-soc
+    runtime: static
+    branch: main
+    rootDir: security-dashboard
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    autoDeployTrigger: commit
+    envVars:
+      - key: VITE_API_URL
+        value: https://zainabatrah-bankshield-backend.onrender.com
+      - key: VITE_SOC_API_URL
+        value: https://zainabatrah-bankshield-backend.onrender.com/soc
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

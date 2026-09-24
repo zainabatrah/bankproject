@@ -11,6 +11,8 @@ import { configureApp } from './../src/app-setup';
 import { FraudService } from './../src/fraud/fraud.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 
+process.env.FRAUD_API_KEY ??= 'test-fraud-api-key';
+
 jest.setTimeout(60_000);
 
 interface ErrorResponseBody {
@@ -1228,6 +1230,8 @@ describe('BankShield security flows (e2e)', () => {
 
   afterAll(async () => {
     try {
+      if (!prisma) return;
+
       if (flaggedFraudAlertId) {
         await prisma.investigationCase.deleteMany({
           where: { alertId: flaggedFraudAlertId },
@@ -1277,7 +1281,9 @@ describe('BankShield security flows (e2e)', () => {
       if (bankEmployeeId) await cleanupUser(bankEmployeeEmail);
       if (adminId) await cleanupUser(adminEmail);
     } finally {
-      await app?.close();
+      if (app) {
+        await app.close();
+      }
     }
   });
 });

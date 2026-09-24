@@ -2,14 +2,31 @@ import os
 import pytest
 
 from fastapi.testclient import TestClient
+
+os.environ.setdefault(
+    "DATABASE_URL",
+    "sqlite://"
+)
+os.environ.setdefault(
+    "FRAUD_API_KEY",
+    "test-fraud-api-key"
+)
+
+from database import Base, engine
 from main import app, limiter
 
 
 client = TestClient(app)
 
 @pytest.fixture(autouse=True)
-def reset_rate_limiter():
+def reset_test_state():
     limiter.reset()
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    yield
+
+    Base.metadata.drop_all(bind=engine)
 
 API_HEADERS = {
     "X-API-Key": os.getenv("FRAUD_API_KEY")
@@ -194,29 +211,6 @@ def test_analyze_rejects_invalid_api_key():
     assert response.json()["detail"] == (
         "Invalid API key"
     )
-
-    #This test calls an endpoint and verifies that the
-    #  middleware added all four headers.
-
-    def test_analyze_rejects_invalid_api_key():
-        response = client.post(
-        "/analyze",
-        headers={
-            "X-API-Key": "incorrect-key"
-        },
-        json={
-            "amount": 300,
-            "average_amount": 250,
-            "new_device": False,
-            "new_beneficiary": False,
-            "transactions_last_hour": 1,
-            "failed_logins_last_hour": 0,
-            "transaction_hour": 14
-        }
-    )
-
-    assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid API key"
 
 
 def test_security_headers():
